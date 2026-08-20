@@ -2,7 +2,7 @@ const EXTENSION_KEY = 'observerPet';
 const METADATA_KEY = 'observerPetThread';
 const POSITION_KEY = 'observer-pet-device-layout-v1';
 const EXTENSION_FOLDER_NAME = 'sillytavern-observer-pet';
-const EXTENSION_VERSION = '0.5.1';
+const EXTENSION_VERSION = '0.6.0';
 const MAX_CONTEXT_CHARS = 80000;
 const PET_EMOTION_DURATION_MS = 30000;
 const PET_EMOTIONS = Object.freeze(['happy', 'laugh', 'sad', 'angry', 'frown', 'surprised']);
@@ -34,6 +34,7 @@ const DEFAULT_SETTINGS = Object.freeze({
     includeCharacterCard: true,
     includeUserPersona: true,
     includeAuthorNote: true,
+    thread: null,
 });
 
 let context;
@@ -42,7 +43,6 @@ let elements = {};
 let abortController = null;
 let generationChatId = null;
 let memorySummaryTask = null;
-let memorySummaryChatId = null;
 let emotionResetTimer = null;
 let isDraggingPet = false;
 let isDraggingPanel = false;
@@ -121,18 +121,38 @@ function ensureThreadMemory(thread) {
     return thread.memory;
 }
 
+function createThreadState() {
+    return {
+        version: 3,
+        messages: [],
+        memory: createMemoryState(),
+    };
+}
+
+function cloneThreadState(thread) {
+    try {
+        return globalThis.structuredClone(thread);
+    } catch {
+        return JSON.parse(JSON.stringify(thread));
+    }
+}
+
 function getThread(create = true) {
     context = getContext();
-    if (!context.chatId || !context.chatMetadata) return null;
+    let thread = settings?.thread;
 
-    let thread = context.chatMetadata[METADATA_KEY];
-    if (!thread && create) {
-        thread = {
-            version: 2,
-            messages: [],
-            memory: createMemoryState(),
-        };
-        context.chatMetadata[METADATA_KEY] = thread;
+    if (!thread) {
+        const legacyThread = context.chatMetadata?.[METADATA_KEY];
+        if (legacyThread && typeof legacyThread === 'object') {
+            thread = cloneThreadState(legacyThread);
+            thread.migratedFromChatMetadataAt = Date.now();
+            settings.thread = thread;
+            saveSettings();
+        } else if (create) {
+            thread = createThreadState();
+            settings.thread = thread;
+            saveSettings();
+        }
     }
 
     if (thread && !Array.isArray(thread.messages)) {
@@ -142,16 +162,15 @@ function getThread(create = true) {
         for (const message of thread.messages) {
             if (!message.id) message.id = makeId();
         }
-        thread.version = Math.max(2, Number(thread.version) || 1);
+        thread.version = Math.max(3, Number(thread.version) || 1);
         ensureThreadMemory(thread);
     }
     return thread;
 }
 
 function saveThread() {
-    context = getContext();
-    if (!context.chatId) return;
-    context.saveMetadataDebounced();
+    if (!settings?.thread) return;
+    saveSettings();
 }
 
 function getMemoryProgress(thread = getThread(false)) {
@@ -191,8 +210,8 @@ function updateMemoryUi() {
     const thread = getThread(false);
     elements.autoMemory.checked = Boolean(settings.autoMemory);
 
-    if (!getContext().chatId || !thread) {
-        elements.memoryStatus.textContent = '未打开聊天';
+    if (!thread) {
+        elements.memoryStatus.textContent = '尚无旁观聊天';
         elements.memorySummary.value = '';
         elements.memorySummary.disabled = true;
         elements.memoryNow.disabled = true;
@@ -202,7 +221,7 @@ function updateMemoryUi() {
 
     const progress = getMemoryProgress(thread);
     const memory = progress.memory;
-    const isWorking = memorySummaryChatId === getContext().chatId;
+    const isWorking = Boolean(memorySummaryTask);
     elements.memorySummary.disabled = isWorking;
     elements.memorySummary.value = memory.summary || '';
     elements.memoryNow.disabled = isWorking || !progress.pendingMessages.length;
@@ -275,9 +294,8 @@ async function summarizeObserverMemory({ force = false, announce = false } = {})
     }
 
     context = getContext();
-    const chatId = context.chatId;
     const thread = getThread(false);
-    if (!chatId || !thread) return null;
+    if (!thread) return null;
 
     const progress = getMemoryProgress(thread);
     const batch = chooseMemoryBatch(progress.pendingMessages, force);
@@ -298,7 +316,6 @@ async function summarizeObserverMemory({ force = false, announce = false } = {})
         return null;
     }
 
-    memorySummaryChatId = chatId;
     updateMemoryUi();
     memorySummaryTask = (async () => {
         try {
@@ -317,7 +334,7 @@ async function summarizeObserverMemory({ force = false, announce = false } = {})
 
             const updatedSummary = String(response?.content || '').trim();
             if (!updatedSummary) throw new Error('记忆整理返回了空内容');
-            if (getContext().chatId !== chatId || getThread(false) !== thread) return null;
+            if (getThread(false) !== thread) return null;
 
             const memory = ensureThreadMemory(thread);
             if (memory.summary.trim()) {
@@ -343,7 +360,7 @@ async function summarizeObserverMemory({ force = false, announce = false } = {})
             return updatedSummary;
         } catch (error) {
             console.warn('[Observer Pet] Memory summarization failed.', error);
-            if (getContext().chatId === chatId && getThread(false) === thread) {
+            if (getThread(false) === thread) {
                 const memory = ensureThreadMemory(thread);
                 memory.lastError = formatError(error);
                 saveThread();
@@ -353,8 +370,7 @@ async function summarizeObserverMemory({ force = false, announce = false } = {})
             return null;
         } finally {
             memorySummaryTask = null;
-            memorySummaryChatId = null;
-            if (getContext().chatId === chatId) updateMemoryUi();
+            updateMemoryUi();
         }
     })();
 
@@ -589,8 +605,8 @@ function buildUi() {
                         <small id="op-update-status">正常更新只会替换扩展代码，不会删除旁观聊天记录或设置。</small>
                     </section>
 
-                    <button id="op-clear-button" class="op-danger-button" type="button">清空当前聊天的小团子对话与记忆</button>
-                    <p class="op-storage-note">旁观对话和长期记忆按当前 SillyTavern 聊天分别保存在 metadata 中；小团子的位置和窗口大小只记在当前设备。</p>
+                    <button id="op-clear-button" class="op-danger-button" type="button">清空小团子的全部对话与记忆</button>
+                    <p class="op-storage-note">小团子的旁观对话和长期记忆全局共用：更换角色卡或酒馆聊天，它仍是同一只小团子；眼前读取的剧情会跟随当前聊天变化。位置和窗口大小只记在当前设备。</p>
                 </div>
             </div>
         </section>`;
@@ -1574,7 +1590,7 @@ function bindEvents() {
     elements.memoryClear.addEventListener('click', () => {
         const thread = getThread(false);
         if (!thread) return;
-        if (!confirm('清空当前酒馆聊天里小团子的长期记忆吗？最近旁观聊天原文会保留，剧情本身也不会变化。')) return;
+        if (!confirm('清空小团子的全局长期记忆吗？最近旁观聊天原文会保留，所有酒馆剧情本身也不会变化。')) return;
 
         const reset = createMemoryState();
         const messages = thread.messages.filter((message) => message.role === 'user' || message.role === 'assistant');
@@ -1595,13 +1611,13 @@ function bindEvents() {
     elements.clearButton.addEventListener('click', () => {
         const thread = getThread(false);
         if (!thread?.messages?.length && !thread?.memory?.summary) return;
-        if (!confirm('清空当前酒馆聊天里的小团子对话和长期记忆吗？剧情本身不会变化。')) return;
+        if (!confirm('清空小团子的全部旁观对话和长期记忆吗？更换角色卡后也无法找回；酒馆剧情本身不会变化。')) return;
         thread.messages = [];
         thread.memory = createMemoryState();
         saveThread();
         renderHistory();
         updateMemoryUi();
-        notify('当前旁观对话和长期记忆已清空。', 'success');
+        notify('小团子的全部旁观对话和长期记忆已清空。', 'success');
     });
 
     const onChatChanged = () => {
