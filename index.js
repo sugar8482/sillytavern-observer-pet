@@ -2,7 +2,7 @@ const EXTENSION_KEY = 'observerPet';
 const METADATA_KEY = 'observerPetThread';
 const POSITION_KEY = 'observer-pet-device-layout-v1';
 const EXTENSION_FOLDER_NAME = 'sillytavern-observer-pet';
-const EXTENSION_VERSION = '0.5.0';
+const EXTENSION_VERSION = '0.5.1';
 const MAX_CONTEXT_CHARS = 80000;
 const PET_EMOTION_DURATION_MS = 30000;
 const PET_EMOTIONS = Object.freeze(['happy', 'laugh', 'sad', 'angry', 'frown', 'surprised']);
@@ -1197,9 +1197,10 @@ function buildRequestMessages() {
                     `你的当前称呼是“${settings.observerName}”。`,
                     getReplyLengthInstruction(),
                     [
-                        '每次回复正文结束后，另起一行输出一个表情标记，且不要解释或使用代码块包裹。',
+                        '每次回复必须先单独输出一个表情标记，再从下一行开始完整回复正文；不要解释标记，也不要使用代码块包裹。',
                         '只能从以下六种中选择一个：[[pet_emotion:happy]]、[[pet_emotion:laugh]]、[[pet_emotion:sad]]、[[pet_emotion:angry]]、[[pet_emotion:frown]]、[[pet_emotion:surprised]]。',
                         '根据你这次回答时最自然的情绪选择；这个标记只供小团子界面变换表情，用户不会看到。',
+                        '输出表情标记后，必须把正文自然、完整地说完，不要为了尽快结束而缩短句子或停在半句话上。',
                     ].join('\n'),
                 ].filter(Boolean).join('\n\n'),
             },
