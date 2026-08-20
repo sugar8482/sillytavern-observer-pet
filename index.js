@@ -2,8 +2,12 @@ const EXTENSION_KEY = 'observerPet';
 const METADATA_KEY = 'observerPetThread';
 const POSITION_KEY = 'observer-pet-device-layout-v1';
 const EXTENSION_FOLDER_NAME = 'sillytavern-observer-pet';
-const EXTENSION_VERSION = '0.3.0';
+const EXTENSION_VERSION = '0.4.0';
 const MAX_CONTEXT_CHARS = 80000;
+const MEMORY_BATCH_MESSAGES = 20;
+const MEMORY_MAX_BATCH_MESSAGES = 100;
+const MEMORY_MAX_SOURCE_CHARS = 60000;
+const MEMORY_MAX_TOKENS = 1200;
 
 const DEFAULT_SETTINGS = Object.freeze({
     enabled: true,
@@ -19,7 +23,8 @@ const DEFAULT_SETTINGS = Object.freeze({
     summaryTag: 'meow_FM',
     summaryMessages: 0,
     summaryReadAll: false,
-    observerHistory: 12,
+    observerHistory: 20,
+    autoMemory: true,
     maxTokens: 700,
     replyLength: 'brief',
     temperature: 0.9,
@@ -33,6 +38,8 @@ let settings;
 let elements = {};
 let abortController = null;
 let generationChatId = null;
+let memorySummaryTask = null;
+let memorySummaryChatId = null;
 let isDraggingPet = false;
 let isDraggingPanel = false;
 let resizeObserver = null;
@@ -62,6 +69,9 @@ function loadSettings() {
         ...DEFAULT_SETTINGS,
         ...saved,
     };
+    if (!Object.hasOwn(saved, 'autoMemory') && saved.observerHistory === 12) {
+        settings.observerHistory = 20;
+    }
     context.saveSettingsDebounced();
 }
 
@@ -81,6 +91,32 @@ function makeId() {
     return globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function createMemoryState() {
+    return {
+        version: 1,
+        summary: '',
+        summarizedThroughId: '',
+        summarizedMessages: 0,
+        revisions: [],
+        updatedAt: null,
+        lastError: '',
+    };
+}
+
+function ensureThreadMemory(thread) {
+    if (!thread) return null;
+    if (!thread.memory || typeof thread.memory !== 'object') {
+        thread.memory = createMemoryState();
+    } else {
+        thread.memory = {
+            ...createMemoryState(),
+            ...thread.memory,
+            revisions: Array.isArray(thread.memory.revisions) ? thread.memory.revisions : [],
+        };
+    }
+    return thread.memory;
+}
+
 function getThread(create = true) {
     context = getContext();
     if (!context.chatId || !context.chatMetadata) return null;
@@ -88,14 +124,22 @@ function getThread(create = true) {
     let thread = context.chatMetadata[METADATA_KEY];
     if (!thread && create) {
         thread = {
-            version: 1,
+            version: 2,
             messages: [],
+            memory: createMemoryState(),
         };
         context.chatMetadata[METADATA_KEY] = thread;
     }
 
     if (thread && !Array.isArray(thread.messages)) {
         thread.messages = [];
+    }
+    if (thread) {
+        for (const message of thread.messages) {
+            if (!message.id) message.id = makeId();
+        }
+        thread.version = Math.max(2, Number(thread.version) || 1);
+        ensureThreadMemory(thread);
     }
     return thread;
 }
@@ -104,6 +148,218 @@ function saveThread() {
     context = getContext();
     if (!context.chatId) return;
     context.saveMetadataDebounced();
+}
+
+function getMemoryProgress(thread = getThread(false)) {
+    if (!thread) {
+        return { memory: null, cursorIndex: -1, pendingMessages: [], recentMessages: [] };
+    }
+
+    const memory = ensureThreadMemory(thread);
+    const messages = thread.messages.filter((message) => message.role === 'user' || message.role === 'assistant');
+    const recentCount = safeNumber(settings.observerHistory, 20, 2, 60);
+    const recentStart = Math.max(0, messages.length - recentCount);
+    let cursorIndex = memory.summarizedThroughId
+        ? messages.findIndex((message) => message.id === memory.summarizedThroughId)
+        : -1;
+
+    if (cursorIndex < 0 && memory.summarizedMessages > 0) {
+        cursorIndex = Math.min(messages.length, memory.summarizedMessages) - 1;
+    }
+
+    const pendingStart = Math.max(0, cursorIndex + 1);
+    const pendingMessages = pendingStart < recentStart
+        ? messages.slice(pendingStart, recentStart)
+        : [];
+
+    return {
+        memory,
+        cursorIndex,
+        pendingMessages,
+        recentMessages: messages.slice(recentStart),
+        totalMessages: messages.length,
+    };
+}
+
+function updateMemoryUi() {
+    if (!elements.memoryStatus) return;
+
+    const thread = getThread(false);
+    elements.autoMemory.checked = Boolean(settings.autoMemory);
+
+    if (!getContext().chatId || !thread) {
+        elements.memoryStatus.textContent = '未打开聊天';
+        elements.memorySummary.value = '';
+        elements.memorySummary.disabled = true;
+        elements.memoryNow.disabled = true;
+        elements.memoryClear.disabled = true;
+        return;
+    }
+
+    const progress = getMemoryProgress(thread);
+    const memory = progress.memory;
+    const isWorking = memorySummaryChatId === getContext().chatId;
+    elements.memorySummary.disabled = isWorking;
+    elements.memorySummary.value = memory.summary || '';
+    elements.memoryNow.disabled = isWorking || !progress.pendingMessages.length;
+    elements.memoryClear.disabled = isWorking || (!memory.summary.trim() && !memory.revisions.length);
+
+    if (isWorking) {
+        elements.memoryStatus.textContent = '正在整理……';
+    } else if (memory.lastError) {
+        elements.memoryStatus.textContent = `上次失败：${memory.lastError.slice(0, 80)}`;
+    } else {
+        const prefix = memory.summary.trim()
+            ? `已整理 ${memory.summarizedMessages} 条`
+            : '尚未形成长期记忆';
+        elements.memoryStatus.textContent = `${prefix} · 待整理 ${progress.pendingMessages.length} 条 · 保留最近 ${progress.recentMessages.length} 条全文`;
+    }
+}
+
+function chooseMemoryBatch(pendingMessages, force = false) {
+    if (!force && pendingMessages.length < MEMORY_BATCH_MESSAGES) return [];
+    if (!pendingMessages.length) return [];
+
+    const batch = [];
+    let sourceCharacters = 0;
+    for (const message of pendingMessages.slice(0, MEMORY_MAX_BATCH_MESSAGES)) {
+        const messageLength = String(message.content || '').length;
+        if (batch.length && sourceCharacters + messageLength > MEMORY_MAX_SOURCE_CHARS) break;
+        batch.push(message);
+        sourceCharacters += messageLength;
+    }
+    return batch;
+}
+
+function formatMemorySource(messages) {
+    return messages.map((message) => {
+        const speaker = message.role === 'user' ? '晨曦' : settings.observerName;
+        return `${speaker}：\n${message.content}`;
+    }).join('\n\n---\n\n');
+}
+
+function buildMemorySummaryMessages(memory, batch) {
+    return [
+        {
+            role: 'system',
+            content: [
+                `你是“${settings.observerName}”，正在整理你与晨曦之间的长期聊天记忆。`,
+                '请把旧的长期记忆与本批新对话合并成一份更新后的记忆，使用第一人称“我”代表你自己，直接称呼用户为“晨曦”。',
+                '重点保留：晨曦稳定的偏好、雷点和表达习惯；我们已经形成的共同判断或分歧；我自己明确表达过的观点与立场；彼此的约定；尚未聊完、以后值得接续的话题。',
+                '剧情本身不要按时间线复述。只有在理解我们观点所必需时，简短写出男主、男二或其他关键人物的名字，以及发生了什么；重点始终是“我们怎么看”。',
+                '不要把推测写成事实，不要虚构感情或经历，不要擅自替晨曦宣布感受。已经过时或被后文更正的内容应更新。',
+                '整体保持紧凑，避免漂亮散文和重复解释。输出只包含更新后的长期记忆正文，不要写前言、过程说明或“总结如下”。',
+            ].join('\n'),
+        },
+        {
+            role: 'user',
+            content: [
+                '[此前长期记忆]',
+                memory.summary.trim() || '（尚无）',
+                '',
+                '[本批新增旁观聊天原文]',
+                formatMemorySource(batch),
+            ].join('\n'),
+        },
+    ];
+}
+
+async function summarizeObserverMemory({ force = false, announce = false } = {}) {
+    if (memorySummaryTask) {
+        if (announce) notify('小团子正在整理上一批记忆。', 'info');
+        return memorySummaryTask;
+    }
+
+    context = getContext();
+    const chatId = context.chatId;
+    const thread = getThread(false);
+    if (!chatId || !thread) return null;
+
+    const progress = getMemoryProgress(thread);
+    const batch = chooseMemoryBatch(progress.pendingMessages, force);
+    if (!batch.length) {
+        if (announce) {
+            const needed = Math.max(0, MEMORY_BATCH_MESSAGES - progress.pendingMessages.length);
+            notify(progress.pendingMessages.length
+                ? `还有 ${progress.pendingMessages.length} 条较早消息；再积累 ${needed} 条就会自动整理。`
+                : '最近全文以前还没有可整理的旧聊天。', 'info');
+        }
+        updateMemoryUi();
+        return null;
+    }
+
+    const profileId = resolveProfileId();
+    if (!profileId) {
+        if (announce) notify('没有可用的连接配置，暂时无法整理记忆。', 'warning');
+        return null;
+    }
+
+    memorySummaryChatId = chatId;
+    updateMemoryUi();
+    memorySummaryTask = (async () => {
+        try {
+            const response = await getContext().ConnectionManagerRequestService.sendRequest(
+                profileId,
+                buildMemorySummaryMessages(progress.memory, batch),
+                MEMORY_MAX_TOKENS,
+                {
+                    extractData: true,
+                    includePreset: false,
+                    includeInstruct: true,
+                    stream: false,
+                },
+                { temperature: 0.25 },
+            );
+
+            const updatedSummary = String(response?.content || '').trim();
+            if (!updatedSummary) throw new Error('记忆整理返回了空内容');
+            if (getContext().chatId !== chatId || getThread(false) !== thread) return null;
+
+            const memory = ensureThreadMemory(thread);
+            if (memory.summary.trim()) {
+                memory.revisions.push({
+                    summary: memory.summary,
+                    summarizedThroughId: memory.summarizedThroughId,
+                    summarizedMessages: memory.summarizedMessages,
+                    createdAt: Date.now(),
+                });
+                memory.revisions = memory.revisions.slice(-5);
+            }
+
+            const lastMessage = batch.at(-1);
+            const lastIndex = thread.messages.findIndex((message) => message.id === lastMessage.id);
+            memory.summary = updatedSummary;
+            memory.summarizedThroughId = lastMessage.id;
+            memory.summarizedMessages = lastIndex >= 0 ? lastIndex + 1 : memory.summarizedMessages + batch.length;
+            memory.updatedAt = Date.now();
+            memory.lastError = '';
+            saveThread();
+            updateMemoryUi();
+            if (announce) notify(`已把 ${batch.length} 条旧聊天整理进长期记忆。`, 'success');
+            return updatedSummary;
+        } catch (error) {
+            console.warn('[Observer Pet] Memory summarization failed.', error);
+            if (getContext().chatId === chatId && getThread(false) === thread) {
+                const memory = ensureThreadMemory(thread);
+                memory.lastError = formatError(error);
+                saveThread();
+                updateMemoryUi();
+                notify('长期记忆整理暂时失败，旧聊天原文仍然保留，下次可以重试。', 'warning');
+            }
+            return null;
+        } finally {
+            memorySummaryTask = null;
+            memorySummaryChatId = null;
+            if (getContext().chatId === chatId) updateMemoryUi();
+        }
+    })();
+
+    return memorySummaryTask;
+}
+
+function queueAutomaticMemorySummary() {
+    if (!settings.autoMemory) return;
+    void summarizeObserverMemory();
 }
 
 function createPetSvg(extraClass = '') {
@@ -194,8 +450,9 @@ function buildUi() {
                             <small>用户和剧情 AI 的消息合计；0 表示完全不读取正文。</small>
                         </label>
                         <label class="op-field">
-                            <span>旁观聊天历史数</span>
+                            <span>最近旁观聊天全文数</span>
                             <input id="op-history-count" type="number" min="2" max="60" step="1" />
+                            <small>你和小团子的消息合计；更早内容由长期记忆接续。</small>
                         </label>
                     </div>
 
@@ -252,6 +509,23 @@ function buildUi() {
                         <textarea id="op-system-prompt" rows="8"></textarea>
                     </label>
 
+                    <section class="op-memory-card">
+                        <div class="op-memory-heading">
+                            <strong>小团子的长期记忆</strong>
+                            <span id="op-memory-status">尚未整理</span>
+                        </div>
+                        <label class="op-checkbox-line">
+                            <input id="op-auto-memory" type="checkbox" />
+                            <span>自动把较早的旁观聊天压缩进长期记忆</span>
+                        </label>
+                        <textarea id="op-memory-summary" rows="9" placeholder="聊满一批后，小团子会在这里用第一人称整理长期记忆。你也可以直接修改。"></textarea>
+                        <div class="op-memory-actions">
+                            <button id="op-memory-now" class="op-secondary-button" type="button">立即整理</button>
+                            <button id="op-memory-clear" class="op-danger-button" type="button">清空记忆</button>
+                        </div>
+                        <small>默认保留最近20条全文，每积满20条较早消息自动整理一次。剧情只留必要的人名和背景，重点保存你们的观点、偏好、约定与未完话题。</small>
+                    </section>
+
                     <button id="op-preview-button" class="op-secondary-button" type="button">预览下次会发送的剧情内容</button>
                     <div id="op-preview-wrap" hidden>
                         <div id="op-preview-stats"></div>
@@ -267,8 +541,8 @@ function buildUi() {
                         <small id="op-update-status">正常更新只会替换扩展代码，不会删除旁观聊天记录或设置。</small>
                     </section>
 
-                    <button id="op-clear-button" class="op-danger-button" type="button">清空当前酒馆聊天的旁观记录</button>
-                    <p class="op-storage-note">对话记录保存在当前 SillyTavern 聊天的 metadata 中；小团子的位置和窗口大小只记在当前设备。</p>
+                    <button id="op-clear-button" class="op-danger-button" type="button">清空当前聊天的小团子对话与记忆</button>
+                    <p class="op-storage-note">旁观对话和长期记忆按当前 SillyTavern 聊天分别保存在 metadata 中；小团子的位置和窗口大小只记在当前设备。</p>
                 </div>
             </div>
         </section>`;
@@ -308,6 +582,11 @@ function buildUi() {
         includePersona: root.querySelector('#op-include-persona'),
         includeNote: root.querySelector('#op-include-note'),
         systemPrompt: root.querySelector('#op-system-prompt'),
+        autoMemory: root.querySelector('#op-auto-memory'),
+        memorySummary: root.querySelector('#op-memory-summary'),
+        memoryStatus: root.querySelector('#op-memory-status'),
+        memoryNow: root.querySelector('#op-memory-now'),
+        memoryClear: root.querySelector('#op-memory-clear'),
         previewButton: root.querySelector('#op-preview-button'),
         previewWrap: root.querySelector('#op-preview-wrap'),
         previewStats: root.querySelector('#op-preview-stats'),
@@ -516,6 +795,63 @@ function setGenerating(value) {
     elements.subtitle.textContent = value ? '正在看剧情……' : '剧情外的聊天伙伴';
 }
 
+async function copyObserverMessage(text) {
+    const value = String(text || '');
+    if (!value) return;
+
+    try {
+        if (!navigator.clipboard?.writeText) throw new Error('Clipboard API unavailable');
+        await navigator.clipboard.writeText(value);
+    } catch {
+        const helper = document.createElement('textarea');
+        helper.value = value;
+        helper.setAttribute('readonly', '');
+        helper.style.position = 'fixed';
+        helper.style.inset = '-9999px auto auto -9999px';
+        document.body.appendChild(helper);
+        helper.select();
+        const copied = document.execCommand('copy');
+        helper.remove();
+        if (!copied) throw new Error('浏览器拒绝了复制操作');
+    }
+
+    notify('这条消息已复制。', 'success');
+}
+
+function deleteObserverMessage(messageId) {
+    const thread = getThread(false);
+    if (!thread) return;
+
+    const memory = ensureThreadMemory(thread);
+    const memoryMessages = thread.messages.filter((message) => message.role === 'user' || message.role === 'assistant');
+    const removedMemoryIndex = memoryMessages.findIndex((message) => message.id === messageId);
+    const cursorIndex = memory.summarizedThroughId
+        ? memoryMessages.findIndex((message) => message.id === memory.summarizedThroughId)
+        : Math.min(memoryMessages.length, memory.summarizedMessages) - 1;
+    const wasSummarized = removedMemoryIndex >= 0 && removedMemoryIndex <= cursorIndex;
+    const prompt = wasSummarized
+        ? '这条原文已经进入长期记忆。删除原文不会自动删掉摘要里可能留下的相关内容，你可以稍后在齿轮里直接修改长期记忆。仍要删除吗？'
+        : '删除这条小团子旁观消息吗？酒馆剧情不会受影响。';
+    if (!confirm(prompt)) return;
+
+    const index = thread.messages.findIndex((message) => message.id === messageId);
+    if (index < 0) return;
+    thread.messages.splice(index, 1);
+
+    if (wasSummarized) {
+        memory.summarizedMessages = Math.max(0, memory.summarizedMessages - 1);
+        if (memory.summarizedThroughId === messageId) {
+            const previous = memoryMessages[removedMemoryIndex - 1];
+            memory.summarizedThroughId = previous?.id || '';
+        }
+    }
+
+    saveThread();
+    renderHistory();
+    updateMemoryUi();
+    notify('这条旁观消息已删除。', 'success');
+}
+
 function createMessageElement(message, pending = false) {
     const row = document.createElement('article');
     row.className = `op-message op-${message.role}${pending ? ' op-pending' : ''}`;
@@ -529,7 +865,38 @@ function createMessageElement(message, pending = false) {
     content.className = 'op-message-content';
     renderMessageContent(content, message.content, message.role, pending);
 
-    row.append(label, content);
+    const actions = document.createElement('div');
+    actions.className = 'op-message-actions';
+
+    const copyButton = document.createElement('button');
+    copyButton.type = 'button';
+    copyButton.textContent = '复制';
+    copyButton.addEventListener('click', async (event) => {
+        event.stopPropagation();
+        try {
+            await copyObserverMessage(message.content);
+        } catch (error) {
+            notify(`复制失败：${formatError(error)}`, 'error');
+        }
+    });
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.textContent = '删除';
+    deleteButton.className = 'op-message-delete';
+    deleteButton.addEventListener('click', (event) => {
+        event.stopPropagation();
+        deleteObserverMessage(message.id);
+    });
+
+    actions.append(copyButton, deleteButton);
+    row.append(label, content, actions);
+    row.addEventListener('click', (event) => {
+        if (event.target.closest('.op-message-actions') || row.classList.contains('op-pending') || row.classList.contains('op-error')) return;
+        const shouldShow = !row.classList.contains('op-show-actions');
+        elements.messages.querySelectorAll('.op-message.op-show-actions').forEach((element) => element.classList.remove('op-show-actions'));
+        row.classList.toggle('op-show-actions', shouldShow);
+    });
     return row;
 }
 
@@ -765,6 +1132,7 @@ function getReplyLengthInstruction() {
 function buildRequestMessages() {
     const thread = getThread(false);
     const story = buildStoryContext();
+    const memory = ensureThreadMemory(thread);
     const history = (thread?.messages || [])
         .filter((message) => message.role === 'user' || message.role === 'assistant')
         .slice(-settings.observerHistory)
@@ -781,6 +1149,15 @@ function buildRequestMessages() {
                     getReplyLengthInstruction(),
                 ].filter(Boolean).join('\n\n'),
             },
+            ...(memory?.summary?.trim() ? [{
+                role: 'system',
+                content: [
+                    '以下是你此前亲自整理的、关于你与晨曦旁观聊天的长期记忆。',
+                    '把它作为关系和观点的背景使用，不要逐条复述，也不要让它覆盖晨曦刚刚说的话。',
+                    '',
+                    memory.summary.trim(),
+                ].join('\n'),
+            }] : []),
             {
                 role: 'system',
                 content: [
@@ -865,6 +1242,8 @@ function syncSettingsUi() {
     elements.includePersona.checked = settings.includeUserPersona;
     elements.includeNote.checked = settings.includeAuthorNote;
     elements.systemPrompt.value = settings.systemPrompt;
+    elements.autoMemory.checked = Boolean(settings.autoMemory);
+    updateMemoryUi();
 }
 
 function updateSetting(key, value) {
@@ -923,6 +1302,7 @@ async function sendObserverMessage(text) {
     generationChatId = context.chatId;
     setGenerating(true);
     let finalText = '';
+    let shouldQueueMemory = false;
 
     try {
         const service = getContext().ConnectionManagerRequestService;
@@ -964,6 +1344,7 @@ async function sendObserverMessage(text) {
         if (getContext().chatId === generationChatId) {
             getThread().messages.push(pendingMessage);
             saveThread();
+            shouldQueueMemory = true;
         }
 
         if (!isPanelOpen()) elements.unread.classList.add('op-visible');
@@ -975,6 +1356,7 @@ async function sendObserverMessage(text) {
                 pendingMessage.content = `${finalText.trim()}\n\n（已停止）`;
                 getThread().messages.push(pendingMessage);
                 saveThread();
+                shouldQueueMemory = true;
                 renderMessageContent(pendingElement.querySelector('.op-message-content'), pendingMessage.content, 'assistant');
                 pendingElement.classList.remove('op-pending');
             } else {
@@ -992,6 +1374,8 @@ async function sendObserverMessage(text) {
         abortController = null;
         generationChatId = null;
         setGenerating(false);
+        updateMemoryUi();
+        if (shouldQueueMemory) queueAutomaticMemorySummary();
         elements.input.focus({ preventScroll: true });
     }
 }
@@ -1095,7 +1479,11 @@ function bindEvents() {
         elements.summaryCount.disabled = elements.summaryAll.checked;
         updateSetting('summaryReadAll', elements.summaryAll.checked);
     });
-    elements.historyCount.addEventListener('change', () => updateSetting('observerHistory', safeNumber(elements.historyCount.value, 12, 2, 60)));
+    elements.historyCount.addEventListener('change', () => {
+        updateSetting('observerHistory', safeNumber(elements.historyCount.value, 20, 2, 60));
+        updateMemoryUi();
+        queueAutomaticMemorySummary();
+    });
     elements.maxTokens.addEventListener('change', () => updateSetting('maxTokens', safeNumber(elements.maxTokens.value, 700, 100, 8000)));
     elements.replyLength.addEventListener('change', () => updateSetting('replyLength', elements.replyLength.value));
     elements.temperature.addEventListener('change', () => updateSetting('temperature', safeNumber(elements.temperature.value, 0.9, 0, 2)));
@@ -1103,17 +1491,56 @@ function bindEvents() {
     elements.includePersona.addEventListener('change', () => updateSetting('includeUserPersona', elements.includePersona.checked));
     elements.includeNote.addEventListener('change', () => updateSetting('includeAuthorNote', elements.includeNote.checked));
     elements.systemPrompt.addEventListener('change', () => updateSetting('systemPrompt', elements.systemPrompt.value.trim() || DEFAULT_SETTINGS.systemPrompt));
+    elements.autoMemory.addEventListener('change', () => {
+        updateSetting('autoMemory', elements.autoMemory.checked);
+        updateMemoryUi();
+        if (settings.autoMemory) queueAutomaticMemorySummary();
+    });
+    elements.memorySummary.addEventListener('change', () => {
+        const thread = getThread(false);
+        if (!thread) return;
+        const memory = ensureThreadMemory(thread);
+        memory.summary = elements.memorySummary.value.trim();
+        memory.updatedAt = Date.now();
+        memory.lastError = '';
+        saveThread();
+        updateMemoryUi();
+        notify('小团子的长期记忆已保存。', 'success');
+    });
+    elements.memoryNow.addEventListener('click', async () => {
+        await summarizeObserverMemory({ force: true, announce: true });
+    });
+    elements.memoryClear.addEventListener('click', () => {
+        const thread = getThread(false);
+        if (!thread) return;
+        if (!confirm('清空当前酒馆聊天里小团子的长期记忆吗？最近旁观聊天原文会保留，剧情本身也不会变化。')) return;
+
+        const reset = createMemoryState();
+        const messages = thread.messages.filter((message) => message.role === 'user' || message.role === 'assistant');
+        const recentCount = safeNumber(settings.observerHistory, 20, 2, 60);
+        const forgottenThroughIndex = messages.length - recentCount - 1;
+        if (forgottenThroughIndex >= 0) {
+            reset.summarizedThroughId = messages[forgottenThroughIndex].id;
+            reset.summarizedMessages = forgottenThroughIndex + 1;
+        }
+        thread.memory = reset;
+        saveThread();
+        updateMemoryUi();
+        notify('长期记忆已清空；较早内容不会自动重新写回来。', 'success');
+    });
     elements.previewButton.addEventListener('click', showContextPreview);
     elements.updateButton.addEventListener('click', updateExtensionFromGitHub);
 
     elements.clearButton.addEventListener('click', () => {
         const thread = getThread(false);
-        if (!thread?.messages?.length) return;
-        if (!confirm('只清空当前酒馆聊天的小团子对话，剧情本身不会变。继续吗？')) return;
+        if (!thread?.messages?.length && !thread?.memory?.summary) return;
+        if (!confirm('清空当前酒馆聊天里的小团子对话和长期记忆吗？剧情本身不会变化。')) return;
         thread.messages = [];
+        thread.memory = createMemoryState();
         saveThread();
         renderHistory();
-        notify('当前旁观对话已清空。', 'success');
+        updateMemoryUi();
+        notify('当前旁观对话和长期记忆已清空。', 'success');
     });
 
     const onChatChanged = () => {
@@ -1121,6 +1548,8 @@ function bindEvents() {
         setTimeout(() => {
             elements.previewWrap.hidden = true;
             renderHistory();
+            updateMemoryUi();
+            queueAutomaticMemorySummary();
         }, 80);
     };
     context.eventSource.on(context.eventTypes.CHAT_CHANGED, onChatChanged);
@@ -1146,6 +1575,8 @@ async function initialize() {
     restoreDeviceLayout();
     bindEvents();
     renderHistory();
+    updateMemoryUi();
+    queueAutomaticMemorySummary();
     elements.root.hidden = !settings.enabled;
     console.info('[Observer Pet] Ready.');
 }

@@ -239,6 +239,45 @@
     gap: 5px;
 }
 
+.op-message-actions {
+    display: flex;
+    max-height: 0;
+    padding: 0 4px;
+    gap: 5px;
+    overflow: hidden;
+    opacity: 0;
+    transform: translateY(-3px);
+    transition: max-height 150ms ease, opacity 130ms ease, transform 150ms ease;
+}
+
+.op-message.op-show-actions .op-message-actions {
+    max-height: 34px;
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.op-message-actions button {
+    min-height: 28px;
+    padding: 3px 9px;
+    border: 1px solid rgba(148, 204, 255, 0.17);
+    border-radius: 9px;
+    background: rgba(39, 91, 153, 0.22);
+    color: rgba(235, 247, 255, 0.78);
+    font: inherit;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.op-message-actions .op-message-delete {
+    border-color: rgba(255, 132, 151, 0.18);
+    color: rgba(255, 207, 216, 0.85);
+}
+
+.op-message.op-pending .op-message-actions,
+.op-message.op-error .op-message-actions {
+    display: none;
+}
+
 .op-message.op-user {
     align-self: flex-end;
     align-items: flex-end;
@@ -626,6 +665,66 @@
     color: var(--op-muted);
     font-size: 12px;
     line-height: 1.55;
+}
+
+.op-memory-card {
+    display: flex;
+    margin: 2px 0 16px;
+    padding: 12px;
+    flex-direction: column;
+    gap: 10px;
+    border: 1px solid rgba(107, 187, 255, 0.24);
+    border-radius: 13px;
+    background: rgba(50, 119, 196, 0.1);
+}
+
+.op-memory-heading {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 10px;
+}
+
+.op-memory-heading strong {
+    color: #f6fbff;
+    font-size: 14px;
+}
+
+#op-memory-status,
+.op-memory-card > small {
+    color: var(--op-muted);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+#op-memory-summary {
+    box-sizing: border-box;
+    width: 100%;
+    min-height: 150px;
+    padding: 10px;
+    resize: vertical;
+    border: 1px solid var(--op-border);
+    border-radius: 11px;
+    outline: none;
+    background: rgba(255, 255, 255, 0.065);
+    color: #fff;
+    font: inherit;
+    font-size: 14px;
+    line-height: 1.55;
+}
+
+#op-memory-summary:focus {
+    border-color: rgba(109, 190, 255, 0.72);
+}
+
+.op-memory-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 9px;
+}
+
+.op-memory-actions button {
+    margin-bottom: 0;
 }
 
 .op-field input:disabled {
