@@ -1,6 +1,8 @@
 const EXTENSION_KEY = 'observerPet';
 const METADATA_KEY = 'observerPetThread';
 const POSITION_KEY = 'observer-pet-device-layout-v1';
+const EXTENSION_FOLDER_NAME = 'sillytavern-observer-pet';
+const EXTENSION_VERSION = '0.1.1';
 const MAX_CONTEXT_CHARS = 80000;
 
 const DEFAULT_SETTINGS = Object.freeze({
@@ -221,6 +223,15 @@ function buildUi() {
                         <pre id="op-preview"></pre>
                     </div>
 
+                    <section class="op-update-card">
+                        <div>
+                            <strong>扩展更新</strong>
+                            <span id="op-version-label">当前版本 v${EXTENSION_VERSION}</span>
+                        </div>
+                        <button id="op-update-button" class="op-secondary-button" type="button">检查并更新</button>
+                        <small id="op-update-status">正常更新只会替换扩展代码，不会删除旁观聊天记录或设置。</small>
+                    </section>
+
                     <button id="op-clear-button" class="op-danger-button" type="button">清空当前酒馆聊天的旁观记录</button>
                     <p class="op-storage-note">对话记录保存在当前 SillyTavern 聊天的 metadata 中；小团子的位置和窗口大小只记在当前设备。</p>
                 </div>
@@ -261,6 +272,8 @@ function buildUi() {
         previewWrap: root.querySelector('#op-preview-wrap'),
         previewStats: root.querySelector('#op-preview-stats'),
         preview: root.querySelector('#op-preview'),
+        updateButton: root.querySelector('#op-update-button'),
+        updateStatus: root.querySelector('#op-update-status'),
         clearButton: root.querySelector('#op-clear-button'),
     };
 }
@@ -821,6 +834,50 @@ function showContextPreview() {
     elements.previewWrap.hidden = false;
 }
 
+async function updateExtensionFromGitHub() {
+    const button = elements.updateButton;
+    const originalText = button.textContent;
+    button.disabled = true;
+    button.textContent = '正在检查……';
+    elements.updateStatus.textContent = '正在从 GitHub 检查最新代码。';
+
+    try {
+        const response = await fetch('/api/extensions/update', {
+            method: 'POST',
+            headers: getContext().getRequestHeaders(),
+            body: JSON.stringify({
+                extensionName: EXTENSION_FOLDER_NAME,
+                global: false,
+            }),
+        });
+
+        if (!response.ok) {
+            const detail = (await response.text()).trim();
+            throw new Error(detail || `${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        if (data.isUpToDate) {
+            elements.updateStatus.textContent = `已经是最新版（v${EXTENSION_VERSION}）。`;
+            notify('小团子已经是最新版。', 'success');
+            return;
+        }
+
+        const commit = data.shortCommitHash ? ` ${data.shortCommitHash}` : '';
+        elements.updateStatus.textContent = `已更新到新版本${commit}，正在重新载入……`;
+        button.textContent = '更新完成';
+        notify('更新完成，页面将自动刷新。', 'success');
+        setTimeout(() => globalThis.location.reload(), 900);
+    } catch (error) {
+        console.error('[Observer Pet] Extension update failed.', error);
+        elements.updateStatus.textContent = `更新失败：${formatError(error)}`;
+        notify(`更新失败：${formatError(error)}`, 'error');
+    } finally {
+        if (button.textContent !== '更新完成') button.textContent = originalText;
+        button.disabled = false;
+    }
+}
+
 function bindEvents() {
     setupDragging();
 
@@ -860,6 +917,7 @@ function bindEvents() {
     elements.includeNote.addEventListener('change', () => updateSetting('includeAuthorNote', elements.includeNote.checked));
     elements.systemPrompt.addEventListener('change', () => updateSetting('systemPrompt', elements.systemPrompt.value.trim() || DEFAULT_SETTINGS.systemPrompt));
     elements.previewButton.addEventListener('click', showContextPreview);
+    elements.updateButton.addEventListener('click', updateExtensionFromGitHub);
 
     elements.clearButton.addEventListener('click', () => {
         const thread = getThread(false);
