@@ -552,6 +552,52 @@
     accent-color: #4ca8ff;
 }
 
+.op-context-settings {
+    margin: 0 0 16px;
+    padding: 12px;
+    border: 1px solid var(--op-border);
+    border-radius: 13px;
+}
+
+.op-context-settings legend {
+    padding: 0 5px;
+    color: var(--op-muted);
+    font-size: 13px;
+}
+
+.op-context-settings .op-field:last-of-type {
+    margin-bottom: 11px;
+}
+
+.op-checkbox-line {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    color: #f4f9ff;
+    font-size: 14px;
+    line-height: 1.45;
+}
+
+.op-checkbox-line input {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    margin-top: 1px;
+    accent-color: #4ca8ff;
+}
+
+.op-context-note {
+    display: block;
+    margin-top: 8px;
+    color: var(--op-muted);
+    font-size: 12px;
+    line-height: 1.55;
+}
+
+.op-field input:disabled {
+    opacity: 0.48;
+}
+
 .op-secondary-button,
 .op-danger-button {
     width: 100%;

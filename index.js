@@ -2,7 +2,7 @@ const EXTENSION_KEY = 'observerPet';
 const METADATA_KEY = 'observerPetThread';
 const POSITION_KEY = 'observer-pet-device-layout-v1';
 const EXTENSION_FOLDER_NAME = 'sillytavern-observer-pet';
-const EXTENSION_VERSION = '0.1.1';
+const EXTENSION_VERSION = '0.2.0';
 const MAX_CONTEXT_CHARS = 80000;
 
 const DEFAULT_SETTINGS = Object.freeze({
@@ -16,6 +16,9 @@ const DEFAULT_SETTINGS = Object.freeze({
         '以用户刚说的话为主，不必每次总结全文，不要写成分析报告。没看到的内容就坦率说没看到。',
     ].join('\n'),
     contextMessages: 20,
+    summaryTag: 'meow_FM',
+    summaryMessages: 0,
+    summaryReadAll: false,
     observerHistory: 12,
     maxTokens: 700,
     temperature: 0.9,
@@ -185,14 +188,34 @@ function buildUi() {
 
                     <div class="op-two-columns">
                         <label class="op-field">
-                            <span>最近剧情消息数</span>
-                            <input id="op-context-count" type="number" min="1" max="200" step="1" />
+                            <span>最近完整正文数</span>
+                            <input id="op-context-count" type="number" min="0" max="100" step="1" />
+                            <small>用户和剧情 AI 的消息合计；0 表示完全不读取正文。</small>
                         </label>
                         <label class="op-field">
                             <span>旁观聊天历史数</span>
                             <input id="op-history-count" type="number" min="2" max="60" step="1" />
                         </label>
                     </div>
+
+                    <fieldset class="op-context-settings">
+                        <legend>较早剧情摘要</legend>
+                        <label class="op-field">
+                            <span>摘要标签</span>
+                            <input id="op-summary-tag" type="text" maxlength="80" placeholder="meow_FM" />
+                            <small>填写标签名即可，也兼容填写 &lt;meow_FM&gt;。只从最近完整正文以前的 AI 回复中提取。</small>
+                        </label>
+                        <label class="op-field">
+                            <span>旧摘要条数</span>
+                            <input id="op-summary-count" type="number" min="0" max="500" step="1" />
+                            <small>0 表示不读旧摘要；填写 20 表示读取分界线以前最近匹配到的 20 条摘要。</small>
+                        </label>
+                        <label class="op-checkbox-line">
+                            <input id="op-summary-all" type="checkbox" />
+                            <span>从最近正文的前一条，一直读到第一条匹配摘要</span>
+                        </label>
+                        <small class="op-context-note">勾选后忽略“旧摘要条数”。没有摘要标签的旧消息会跳过，不会误发完整正文。</small>
+                    </fieldset>
 
                     <div class="op-two-columns">
                         <label class="op-field">
@@ -261,6 +284,9 @@ function buildUi() {
         observerName: root.querySelector('#op-observer-name'),
         profile: root.querySelector('#op-profile'),
         contextCount: root.querySelector('#op-context-count'),
+        summaryTag: root.querySelector('#op-summary-tag'),
+        summaryCount: root.querySelector('#op-summary-count'),
+        summaryAll: root.querySelector('#op-summary-all'),
         historyCount: root.querySelector('#op-history-count'),
         maxTokens: root.querySelector('#op-max-tokens'),
         temperature: root.querySelector('#op-temperature'),
@@ -522,8 +548,8 @@ function renderHistory() {
         }
     }
 
-    const visibleCount = getVisibleRoleplayMessages().length;
-    elements.contextHint.textContent = `下次读取最近 ${Math.min(settings.contextMessages, visibleCount)} 条剧情`;
+    const selection = selectStoryContent();
+    elements.contextHint.textContent = `下次读取 ${selection.summaries.length} 条摘要 + ${selection.fullMessages.length} 条正文`;
     requestAnimationFrame(scrollMessagesToBottom);
 }
 
@@ -548,6 +574,62 @@ function getVisibleRoleplayMessages() {
         && typeof message.mes === 'string'
         && cleanStoryText(message.mes)
     ));
+}
+
+function normalizeSummaryTag(value) {
+    return String(value || '')
+        .trim()
+        .replace(/^<\/?\s*/, '')
+        .replace(/\s*>$/, '')
+        .split(/\s+/)[0]
+        .replace(/^\//, '');
+}
+
+function escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function extractTaggedSummary(value, configuredTag) {
+    const tag = normalizeSummaryTag(configuredTag);
+    if (!tag) return '';
+
+    const text = String(value || '');
+    const escapedTag = escapeRegExp(tag);
+    const openingPattern = new RegExp(`<${escapedTag}(?:\\s[^>]*)?>`, 'gi');
+    let openingMatch = null;
+    let match;
+    while ((match = openingPattern.exec(text)) !== null) openingMatch = match;
+    if (!openingMatch) return '';
+
+    const contentStart = openingMatch.index + openingMatch[0].length;
+    const remaining = text.slice(contentStart);
+    const closingPattern = new RegExp(`</${escapedTag}\\s*>`, 'i');
+    const closingMatch = closingPattern.exec(remaining);
+    const summary = closingMatch ? remaining.slice(0, closingMatch.index) : remaining;
+    return cleanStoryText(summary);
+}
+
+function selectStoryContent() {
+    const visible = getVisibleRoleplayMessages();
+    const fullCount = safeNumber(settings.contextMessages, 20, 0, 100);
+    const fullStart = Math.max(0, visible.length - fullCount);
+    const fullMessages = fullCount > 0 ? visible.slice(fullStart) : [];
+    const olderMessages = visible.slice(0, fullStart);
+
+    const availableSummaries = olderMessages
+        .filter((message) => !message.is_user)
+        .map((message) => ({
+            message,
+            content: extractTaggedSummary(message.mes, settings.summaryTag),
+        }))
+        .filter((entry) => entry.content);
+
+    const summaryCount = safeNumber(settings.summaryMessages, 0, 0, 500);
+    const summaries = settings.summaryReadAll
+        ? availableSummaries
+        : (summaryCount > 0 ? availableSummaries.slice(-summaryCount) : []);
+
+    return { visible, fullMessages, summaries, availableSummaries };
 }
 
 function getCharacterContext() {
@@ -589,8 +671,7 @@ function getAuthorNoteContext() {
 
 function buildStoryContext() {
     context = getContext();
-    const visible = getVisibleRoleplayMessages();
-    const selected = visible.slice(-settings.contextMessages);
+    const selection = selectStoryContent();
     const blocks = [];
 
     const characterContext = getCharacterContext();
@@ -602,11 +683,23 @@ function buildStoryContext() {
     const authorNote = getAuthorNoteContext();
     if (authorNote) blocks.push(`[当前作者注]\n${authorNote}`);
 
-    const transcript = selected.map((message) => {
+    const summaryTranscript = selection.summaries.map(({ message, content }) => {
+        const name = cleanStoryText(message.name) || context.name2 || '角色';
+        return `${name}的剧情摘要：\n${content}`;
+    }).join('\n\n---\n\n');
+    if (summaryTranscript) {
+        blocks.push(`[较早剧情摘要，共 ${selection.summaries.length} 条]\n${summaryTranscript}`);
+    }
+
+    const transcript = selection.fullMessages.map((message) => {
         const name = cleanStoryText(message.name) || (message.is_user ? context.name1 : context.name2) || (message.is_user ? '用户' : '角色');
         return `${name}：\n${cleanStoryText(message.mes)}`;
     }).join('\n\n---\n\n');
-    blocks.push(`[最近剧情，共 ${selected.length} 条]\n${transcript || '（暂无剧情消息）'}`);
+    if (transcript) {
+        blocks.push(`[最近完整剧情，共 ${selection.fullMessages.length} 条]\n${transcript}`);
+    } else if (!summaryTranscript) {
+        blocks.push('[剧情内容]\n（当前设置没有选取任何剧情正文或摘要）');
+    }
 
     let text = blocks.join('\n\n==========\n\n');
     let clipped = false;
@@ -615,7 +708,13 @@ function buildStoryContext() {
         clipped = true;
     }
 
-    return { text, selectedCount: selected.length, clipped };
+    return {
+        text,
+        fullTextCount: selection.fullMessages.length,
+        summaryCount: selection.summaries.length,
+        availableSummaryCount: selection.availableSummaries.length,
+        clipped,
+    };
 }
 
 function buildRequestMessages() {
@@ -688,6 +787,10 @@ function syncSettingsUi() {
     elements.title.textContent = settings.observerName;
     elements.observerName.value = settings.observerName;
     elements.contextCount.value = settings.contextMessages;
+    elements.summaryTag.value = settings.summaryTag;
+    elements.summaryCount.value = settings.summaryMessages;
+    elements.summaryAll.checked = settings.summaryReadAll;
+    elements.summaryCount.disabled = settings.summaryReadAll;
     elements.historyCount.value = settings.observerHistory;
     elements.maxTokens.value = settings.maxTokens;
     elements.temperature.value = settings.temperature;
@@ -830,7 +933,10 @@ function showContextPreview() {
     const story = buildStoryContext();
     const approxTokens = Math.ceil(story.text.length / 3);
     elements.preview.textContent = story.text;
-    elements.previewStats.textContent = `剧情 ${story.selectedCount} 条 · 约 ${story.text.length.toLocaleString()} 字符 / ${approxTokens.toLocaleString()} tokens${story.clipped ? ' · 已截断较早内容' : ''}`;
+    const availableHint = story.availableSummaryCount > story.summaryCount
+        ? `（分界线前共匹配 ${story.availableSummaryCount} 条）`
+        : '';
+    elements.previewStats.textContent = `摘要 ${story.summaryCount} 条${availableHint} + 正文 ${story.fullTextCount} 条 · 约 ${story.text.length.toLocaleString()} 字符 / ${approxTokens.toLocaleString()} tokens${story.clipped ? ' · 已截断较早内容' : ''}`;
     elements.previewWrap.hidden = false;
 }
 
@@ -908,7 +1014,17 @@ function bindEvents() {
 
     elements.observerName.addEventListener('change', () => updateSetting('observerName', elements.observerName.value.trim() || DEFAULT_SETTINGS.observerName));
     elements.profile.addEventListener('change', () => updateSetting('profileId', elements.profile.value));
-    elements.contextCount.addEventListener('change', () => updateSetting('contextMessages', safeNumber(elements.contextCount.value, 20, 1, 200)));
+    elements.contextCount.addEventListener('change', () => updateSetting('contextMessages', safeNumber(elements.contextCount.value, 20, 0, 100)));
+    elements.summaryTag.addEventListener('change', () => {
+        const normalizedTag = normalizeSummaryTag(elements.summaryTag.value);
+        elements.summaryTag.value = normalizedTag;
+        updateSetting('summaryTag', normalizedTag);
+    });
+    elements.summaryCount.addEventListener('change', () => updateSetting('summaryMessages', safeNumber(elements.summaryCount.value, 0, 0, 500)));
+    elements.summaryAll.addEventListener('change', () => {
+        elements.summaryCount.disabled = elements.summaryAll.checked;
+        updateSetting('summaryReadAll', elements.summaryAll.checked);
+    });
     elements.historyCount.addEventListener('change', () => updateSetting('observerHistory', safeNumber(elements.historyCount.value, 12, 2, 60)));
     elements.maxTokens.addEventListener('change', () => updateSetting('maxTokens', safeNumber(elements.maxTokens.value, 700, 100, 8000)));
     elements.temperature.addEventListener('change', () => updateSetting('temperature', safeNumber(elements.temperature.value, 0.9, 0, 2)));
