@@ -59,6 +59,8 @@
 
 .op-eye,
 .op-mouth,
+.op-mouth-sad,
+.op-mouth-angry,
 .op-mouth-open,
 .op-mouth-squiggle,
 .op-brow,
@@ -69,6 +71,8 @@
 }
 
 .op-mouth-open,
+.op-mouth-sad,
+.op-mouth-angry,
 .op-mouth-squiggle,
 .op-brow,
 .op-tear {
@@ -77,6 +81,8 @@
 }
 
 .op-brow,
+.op-mouth-sad,
+.op-mouth-angry,
 .op-mouth-open,
 .op-mouth-squiggle,
 .op-tear {
@@ -111,7 +117,9 @@
 
 #observer-pet-root.op-emotion-laugh .op-mouth,
 #observer-pet-root.op-emotion-surprised .op-mouth,
-#observer-pet-root.op-emotion-frown .op-mouth {
+#observer-pet-root.op-emotion-frown .op-mouth,
+#observer-pet-root.op-emotion-sad .op-mouth,
+#observer-pet-root.op-emotion-angry .op-mouth {
     opacity: 0;
 }
 
@@ -129,9 +137,12 @@
     transform: translateY(2px) scale(1, 0.82);
 }
 
-#observer-pet-root.op-emotion-sad .op-mouth,
-#observer-pet-root.op-emotion-angry .op-mouth {
-    d: path("M42 65 Q50 57 58 65");
+#observer-pet-root.op-emotion-sad .op-mouth-sad {
+    opacity: 1;
+}
+
+#observer-pet-root.op-emotion-angry .op-mouth-angry {
+    opacity: 1;
 }
 
 #observer-pet-root.op-emotion-sad .op-tear {

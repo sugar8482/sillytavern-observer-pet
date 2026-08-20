@@ -2,7 +2,7 @@ const EXTENSION_KEY = 'observerPet';
 const METADATA_KEY = 'observerPetThread';
 const POSITION_KEY = 'observer-pet-device-layout-v1';
 const EXTENSION_FOLDER_NAME = 'sillytavern-observer-pet';
-const EXTENSION_VERSION = '0.6.0';
+const EXTENSION_VERSION = '0.6.1';
 const MAX_CONTEXT_CHARS = 80000;
 const PET_EMOTION_DURATION_MS = 30000;
 const PET_EMOTIONS = Object.freeze(['happy', 'laugh', 'sad', 'angry', 'frown', 'surprised']);
@@ -394,11 +394,20 @@ function parsePetResponse(value, streaming = false) {
     return { text: text.trim(), emotion };
 }
 
-function inferPetEmotion(text) {
-    const value = String(text || '');
-    if (/(哈哈|笑死|笑疯|太好笑|乐死|🤣|😂|😆)/u.test(value)) return 'laugh';
+function inferPetEmotion(text, userText = '') {
+    const prompt = String(userText || '');
+    const value = `${prompt}\n${String(text || '')}`;
+
+    // 明确让小团子做表情时，以用户点名的表情为准。
+    if (/(生气|发火|愤怒|气一个|凶一个|😠|😡|😾)/u.test(prompt)) return 'angry';
+    if (/(哭一个|哭脸|伤心|难过|悲伤|😭|😢|🥲)/u.test(prompt)) return 'sad';
+    if (/(大笑|笑一个|笑脸|哈哈|🤣|😂|😆)/u.test(prompt)) return 'laugh';
+    if (/(震惊|惊讶|吓一跳|😮|😳|🤯)/u.test(prompt)) return 'surprised';
+    if (/(皱眉|嫌弃|无语|🤨|😕|🙄)/u.test(prompt)) return 'frown';
+
     if (/(生气|气死|混蛋|王八蛋|可恶|愤怒|火大|😠|😡|😾)/u.test(value)) return 'angry';
     if (/(难过|心疼|悲剧|哭了|眼泪|委屈|遗憾|😭|😢|🥲)/u.test(value)) return 'sad';
+    if (/(哈哈|笑死|笑疯|太好笑|乐死|🤣|😂|😆)/u.test(value)) return 'laugh';
     if (/(震惊|居然|竟然|天呐|卧槽|没想到|😮|😳|🤯)/u.test(value)) return 'surprised';
     if (/(不对劲|奇怪|怀疑|皱眉|想不通|🤨|😕|🙄)/u.test(value)) return 'frown';
     return 'happy';
@@ -445,6 +454,8 @@ function createPetSvg(extraClass = '') {
                 <rect class="op-eye op-eye-left" x="28" y="40" width="13" height="17" rx="6.5" fill="#fff" />
                 <rect class="op-eye op-eye-right" x="59" y="40" width="13" height="17" rx="6.5" fill="#fff" />
                 <path class="op-mouth" d="M43 58 Q50 65 57 58" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
+                <path class="op-mouth-sad" d="M40 67 Q50 54 60 67" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity="0" />
+                <path class="op-mouth-angry" d="M41 66 Q50 57 59 66" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" opacity="0" />
                 <ellipse class="op-mouth-open" cx="50" cy="62" rx="6" ry="7.5" fill="#153c87" stroke="#fff" stroke-width="3" opacity="0" />
                 <path class="op-mouth-squiggle" d="M40 63 Q44 58 48 63 Q52 68 56 63 Q59 60 62 63" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" opacity="0" />
                 <path class="op-tear" d="M69 57 C74 63 75 67 72 70 C68 73 64 69 66 65 Z" fill="#dff8ff" opacity="0" />
@@ -1212,12 +1223,6 @@ function buildRequestMessages() {
                     settings.systemPrompt.trim(),
                     `你的当前称呼是“${settings.observerName}”。`,
                     getReplyLengthInstruction(),
-                    [
-                        '每次回复必须先单独输出一个表情标记，再从下一行开始完整回复正文；不要解释标记，也不要使用代码块包裹。',
-                        '只能从以下六种中选择一个：[[pet_emotion:happy]]、[[pet_emotion:laugh]]、[[pet_emotion:sad]]、[[pet_emotion:angry]]、[[pet_emotion:frown]]、[[pet_emotion:surprised]]。',
-                        '根据你这次回答时最自然的情绪选择；这个标记只供小团子界面变换表情，用户不会看到。',
-                        '输出表情标记后，必须把正文自然、完整地说完，不要为了尽快结束而缩短句子或停在半句话上。',
-                    ].join('\n'),
                 ].filter(Boolean).join('\n\n'),
             },
             ...(memory?.summary?.trim() ? [{
@@ -1421,7 +1426,7 @@ async function sendObserverMessage(text) {
         }
 
         if (!isPanelOpen()) elements.unread.classList.add('op-visible');
-        setPetEmotion(parsedResponse.emotion || inferPetEmotion(parsedResponse.text));
+        setPetEmotion(inferPetEmotion(parsedResponse.text, userMessage.content));
         elements.pet.classList.add('op-answered');
         setTimeout(() => elements.pet.classList.remove('op-answered'), 700);
     } catch (error) {
@@ -1434,7 +1439,7 @@ async function sendObserverMessage(text) {
                 shouldQueueMemory = true;
                 renderMessageContent(pendingElement.querySelector('.op-message-content'), pendingMessage.content, 'assistant');
                 pendingElement.classList.remove('op-pending');
-                setPetEmotion(partialResponse.emotion || inferPetEmotion(partialResponse.text));
+                setPetEmotion(inferPetEmotion(partialResponse.text, userMessage.content));
             } else {
                 pendingElement.remove();
             }
