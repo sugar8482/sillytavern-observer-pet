@@ -270,6 +270,40 @@
     box-shadow: 0 7px 20px rgba(0, 7, 20, 0.08);
 }
 
+.op-message-content > :first-child {
+    margin-top: 0;
+}
+
+.op-message-content > :last-child {
+    margin-bottom: 0;
+}
+
+.op-message-content p {
+    margin: 0.42em 0;
+}
+
+.op-message-content ul,
+.op-message-content ol {
+    margin: 0.45em 0;
+    padding-left: 1.35em;
+}
+
+.op-message-content li + li {
+    margin-top: 0.25em;
+}
+
+.op-message-content strong {
+    color: #fff;
+    font-weight: 760;
+}
+
+.op-message-content code {
+    padding: 0.08em 0.32em;
+    border-radius: 5px;
+    background: rgba(0, 10, 28, 0.38);
+    font-size: 0.92em;
+}
+
 .op-user .op-message-content {
     border-color: rgba(126, 194, 255, 0.18);
     border-radius: 16px 16px 5px 16px;

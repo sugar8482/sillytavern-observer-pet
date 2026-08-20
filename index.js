@@ -2,7 +2,7 @@ const EXTENSION_KEY = 'observerPet';
 const METADATA_KEY = 'observerPetThread';
 const POSITION_KEY = 'observer-pet-device-layout-v1';
 const EXTENSION_FOLDER_NAME = 'sillytavern-observer-pet';
-const EXTENSION_VERSION = '0.2.0';
+const EXTENSION_VERSION = '0.3.0';
 const MAX_CONTEXT_CHARS = 80000;
 
 const DEFAULT_SETTINGS = Object.freeze({
@@ -21,6 +21,7 @@ const DEFAULT_SETTINGS = Object.freeze({
     summaryReadAll: false,
     observerHistory: 12,
     maxTokens: 700,
+    replyLength: 'brief',
     temperature: 0.9,
     includeCharacterCard: true,
     includeUserPersona: true,
@@ -183,7 +184,7 @@ function buildUi() {
                     <label class="op-field">
                         <span>API 连接配置</span>
                         <select id="op-profile"></select>
-                        <small>复用 SillyTavern 的连接管理器，密钥不会存在这个扩展里。</small>
+                        <small id="op-profile-status">复用 SillyTavern 的连接管理器，密钥不会存在这个扩展里。</small>
                     </label>
 
                     <div class="op-two-columns">
@@ -219,14 +220,25 @@ function buildUi() {
 
                     <div class="op-two-columns">
                         <label class="op-field">
-                            <span>最大回复 tokens</span>
+                            <span>回复硬上限 tokens</span>
                             <input id="op-max-tokens" type="number" min="100" max="8000" step="50" />
+                            <small>这是防止无限输出的上限，不是目标字数；过低可能在半句话处截断。</small>
                         </label>
                         <label class="op-field">
                             <span>温度</span>
                             <input id="op-temperature" type="number" min="0" max="2" step="0.1" />
                         </label>
                     </div>
+
+                    <label class="op-field">
+                        <span>回复长度偏好</span>
+                        <select id="op-reply-length">
+                            <option value="brief">简短聊天（通常 100–300 字）</option>
+                            <option value="natural">自然展开（通常 200–600 字）</option>
+                            <option value="free">不额外限制</option>
+                        </select>
+                        <small>模型会尽量按偏好收住；tokens 仍只负责最后的硬截断。</small>
+                    </label>
 
                     <fieldset class="op-checkboxes">
                         <legend>可以读取的内容</legend>
@@ -283,12 +295,14 @@ function buildUi() {
         settingsBack: root.querySelector('#op-settings-back'),
         observerName: root.querySelector('#op-observer-name'),
         profile: root.querySelector('#op-profile'),
+        profileStatus: root.querySelector('#op-profile-status'),
         contextCount: root.querySelector('#op-context-count'),
         summaryTag: root.querySelector('#op-summary-tag'),
         summaryCount: root.querySelector('#op-summary-count'),
         summaryAll: root.querySelector('#op-summary-all'),
         historyCount: root.querySelector('#op-history-count'),
         maxTokens: root.querySelector('#op-max-tokens'),
+        replyLength: root.querySelector('#op-reply-length'),
         temperature: root.querySelector('#op-temperature'),
         includeCard: root.querySelector('#op-include-card'),
         includePersona: root.querySelector('#op-include-persona'),
@@ -513,10 +527,29 @@ function createMessageElement(message, pending = false) {
 
     const content = document.createElement('div');
     content.className = 'op-message-content';
-    content.textContent = message.content || (pending ? '•••' : '');
+    renderMessageContent(content, message.content, message.role, pending);
 
     row.append(label, content);
     return row;
+}
+
+function renderMessageContent(element, value, role = 'assistant', pending = false) {
+    const text = String(value || '');
+    if (!text) {
+        element.textContent = pending ? '•••' : '';
+        return;
+    }
+
+    if (role === 'assistant') {
+        try {
+            element.innerHTML = getContext().messageFormatting(text, settings.observerName, false, false, -1);
+            return;
+        } catch (error) {
+            console.warn('[Observer Pet] Markdown rendering failed; falling back to plain text.', error);
+        }
+    }
+
+    element.textContent = text;
 }
 
 function renderHistory() {
@@ -717,6 +750,18 @@ function buildStoryContext() {
     };
 }
 
+function getReplyLengthInstruction() {
+    switch (settings.replyLength) {
+        case 'natural':
+            return '回复长度跟着话题自然展开，通常控制在 200–600 个中文字左右。先回应用户最在意的一点，不必面面俱到。';
+        case 'free':
+            return '';
+        case 'brief':
+        default:
+            return '把回复当作朋友间的短聊天，通常控制在 100–300 个中文字左右。先直接回应用户最在意的一点；除非用户明确要求详细分析，否则不要写成长评、报告或多层清单。';
+    }
+}
+
 function buildRequestMessages() {
     const thread = getThread(false);
     const story = buildStoryContext();
@@ -730,7 +775,11 @@ function buildRequestMessages() {
         messages: [
             {
                 role: 'system',
-                content: `${settings.systemPrompt.trim()}\n\n你的当前称呼是“${settings.observerName}”。`,
+                content: [
+                    settings.systemPrompt.trim(),
+                    `你的当前称呼是“${settings.observerName}”。`,
+                    getReplyLengthInstruction(),
+                ].filter(Boolean).join('\n\n'),
             },
             {
                 role: 'system',
@@ -780,7 +829,24 @@ function refreshProfiles() {
         option.textContent = profile.name;
         elements.profile.appendChild(option);
     }
-    elements.profile.value = profiles.some((profile) => profile.id === selected) ? selected : '';
+    const fixed = profiles.find((profile) => profile.id === selected);
+    if (selected && !fixed) {
+        const missing = document.createElement('option');
+        missing.value = selected;
+        missing.textContent = '原先固定的连接配置已不存在';
+        elements.profile.appendChild(missing);
+    }
+
+    elements.profile.value = selected || '';
+    if (fixed) {
+        elements.profileStatus.textContent = `已锁定“${fixed.name}”：只复用它的 API 与模型，不随酒馆当前配置变化，也不读取它绑定的预设。`;
+    } else if (selected) {
+        elements.profileStatus.textContent = '原先锁定的连接配置已不存在；请选择一个新配置，不会自动改为跟随酒馆。';
+    } else if (current) {
+        elements.profileStatus.textContent = `当前正在跟随酒馆的“${current.name}”。若不想变化，请在上方明确选择一个配置。`;
+    } else {
+        elements.profileStatus.textContent = '当前选择了跟随酒馆，但酒馆尚未选定连接配置。';
+    }
 }
 
 function syncSettingsUi() {
@@ -793,6 +859,7 @@ function syncSettingsUi() {
     elements.summaryCount.disabled = settings.summaryReadAll;
     elements.historyCount.value = settings.observerHistory;
     elements.maxTokens.value = settings.maxTokens;
+    elements.replyLength.value = settings.replyLength;
     elements.temperature.value = settings.temperature;
     elements.includeCard.checked = settings.includeCharacterCard;
     elements.includePersona.checked = settings.includeUserPersona;
@@ -878,7 +945,7 @@ async function sendObserverMessage(text) {
             for await (const chunk of stream) {
                 finalText = chunk.text || finalText;
                 const content = pendingElement.querySelector('.op-message-content');
-                content.textContent = finalText || '•••';
+                renderMessageContent(content, finalText, 'assistant', true);
                 pendingElement.classList.toggle('op-pending', !finalText);
                 scrollMessagesToBottom();
             }
@@ -891,7 +958,7 @@ async function sendObserverMessage(text) {
         }
 
         pendingMessage.content = finalText.trim();
-        pendingElement.querySelector('.op-message-content').textContent = pendingMessage.content;
+        renderMessageContent(pendingElement.querySelector('.op-message-content'), pendingMessage.content, 'assistant');
         pendingElement.classList.remove('op-pending');
 
         if (getContext().chatId === generationChatId) {
@@ -908,7 +975,7 @@ async function sendObserverMessage(text) {
                 pendingMessage.content = `${finalText.trim()}\n\n（已停止）`;
                 getThread().messages.push(pendingMessage);
                 saveThread();
-                pendingElement.querySelector('.op-message-content').textContent = pendingMessage.content;
+                renderMessageContent(pendingElement.querySelector('.op-message-content'), pendingMessage.content, 'assistant');
                 pendingElement.classList.remove('op-pending');
             } else {
                 pendingElement.remove();
@@ -1013,7 +1080,10 @@ function bindEvents() {
     elements.stop.addEventListener('click', () => abortController?.abort());
 
     elements.observerName.addEventListener('change', () => updateSetting('observerName', elements.observerName.value.trim() || DEFAULT_SETTINGS.observerName));
-    elements.profile.addEventListener('change', () => updateSetting('profileId', elements.profile.value));
+    elements.profile.addEventListener('change', () => {
+        updateSetting('profileId', elements.profile.value);
+        refreshProfiles();
+    });
     elements.contextCount.addEventListener('change', () => updateSetting('contextMessages', safeNumber(elements.contextCount.value, 20, 0, 100)));
     elements.summaryTag.addEventListener('change', () => {
         const normalizedTag = normalizeSummaryTag(elements.summaryTag.value);
@@ -1027,6 +1097,7 @@ function bindEvents() {
     });
     elements.historyCount.addEventListener('change', () => updateSetting('observerHistory', safeNumber(elements.historyCount.value, 12, 2, 60)));
     elements.maxTokens.addEventListener('change', () => updateSetting('maxTokens', safeNumber(elements.maxTokens.value, 700, 100, 8000)));
+    elements.replyLength.addEventListener('change', () => updateSetting('replyLength', elements.replyLength.value));
     elements.temperature.addEventListener('change', () => updateSetting('temperature', safeNumber(elements.temperature.value, 0.9, 0, 2)));
     elements.includeCard.addEventListener('change', () => updateSetting('includeCharacterCard', elements.includeCard.checked));
     elements.includePersona.addEventListener('change', () => updateSetting('includeUserPersona', elements.includePersona.checked));
