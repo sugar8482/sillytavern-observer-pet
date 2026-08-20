@@ -2,7 +2,7 @@ const EXTENSION_KEY = 'observerPet';
 const METADATA_KEY = 'observerPetThread';
 const POSITION_KEY = 'observer-pet-device-layout-v1';
 const EXTENSION_FOLDER_NAME = 'sillytavern-observer-pet';
-const EXTENSION_VERSION = '0.4.0';
+const EXTENSION_VERSION = '0.4.1';
 const MAX_CONTEXT_CHARS = 80000;
 const MEMORY_BATCH_MESSAGES = 20;
 const MEMORY_MAX_BATCH_MESSAGES = 100;
@@ -1399,15 +1399,16 @@ async function updateExtensionFromGitHub() {
     elements.updateStatus.textContent = '正在从 GitHub 检查最新代码。';
 
     try {
-        const response = await fetch('/api/extensions/update', {
+        const requestUpdate = async (global) => fetch('/api/extensions/update', {
             method: 'POST',
             headers: getContext().getRequestHeaders(),
-            body: JSON.stringify({
-                extensionName: EXTENSION_FOLDER_NAME,
-                global: false,
-            }),
+            body: JSON.stringify({ extensionName: EXTENSION_FOLDER_NAME, global }),
         });
 
+        let response = await requestUpdate(false);
+        if (response.status === 404) {
+            response = await requestUpdate(true);
+        }
         if (!response.ok) {
             const detail = (await response.text()).trim();
             throw new Error(detail || `${response.status} ${response.statusText}`);
