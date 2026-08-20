@@ -1,0 +1,12 @@
+{
+  "display_name": "Observer Pet / 剧情旁观小团子",
+  "loading_order": 45,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "晨曦 & 阿珩",
+  "version": "0.1.0",
+  "homePage": "https://github.com/sugar8482/sillytavern-observer-pet",
+  "auto_update": true
+}
