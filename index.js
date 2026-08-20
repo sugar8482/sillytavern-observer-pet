@@ -2,7 +2,7 @@ const EXTENSION_KEY = 'observerPet';
 const METADATA_KEY = 'observerPetThread';
 const POSITION_KEY = 'observer-pet-device-layout-v1';
 const EXTENSION_FOLDER_NAME = 'sillytavern-observer-pet';
-const EXTENSION_VERSION = '0.6.1';
+const EXTENSION_VERSION = '0.6.2';
 const MAX_CONTEXT_CHARS = 80000;
 const PET_EMOTION_DURATION_MS = 30000;
 const PET_EMOTIONS = Object.freeze(['happy', 'laugh', 'sad', 'angry', 'frown', 'surprised']);
@@ -1390,7 +1390,9 @@ async function sendObserverMessage(text) {
                 extractData: true,
                 includePreset: false,
                 includeInstruct: true,
-                stream: true,
+                // 部分 Gemini 兼容渠道会提前结束 SSE，留下看似正常完成的半句话。
+                // 小团子回复较短，整包返回比流式输出更可靠。
+                stream: false,
                 signal: abortController.signal,
             },
             { temperature: settings.temperature },
