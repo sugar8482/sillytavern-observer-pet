@@ -2,11 +2,13 @@ const EXTENSION_KEY = 'observerPet';
 const METADATA_KEY = 'observerPetThread';
 const POSITION_KEY = 'observer-pet-device-layout-v1';
 const EXTENSION_FOLDER_NAME = 'sillytavern-observer-pet';
-const EXTENSION_VERSION = '0.6.3';
+const EXTENSION_VERSION = '0.7.0';
 const MAX_CONTEXT_CHARS = 80000;
 const PET_EMOTION_DURATION_MS = 30000;
-const PET_EMOTIONS = Object.freeze(['happy', 'laugh', 'sad', 'angry', 'frown', 'surprised']);
-const PET_EMOTION_PATTERN = /\[\[\s*pet_emotion\s*:\s*(happy|laugh|sad|angry|frown|surprised)\s*\]\]/gi;
+const PET_EMOTIONS = Object.freeze([
+    'happy', 'laugh', 'cry', 'wronged', 'cute', 'smirk', 'angry', 'speechless', 'frown', 'surprised',
+]);
+const PET_EMOTION_PATTERN = /\[\[\s*pet_emotion\s*:\s*(happy|laugh|cry|wronged|cute|smirk|sad|angry|speechless|frown|surprised)\s*\]\]/gi;
 const MEMORY_BATCH_MESSAGES = 20;
 const MEMORY_MAX_BATCH_MESSAGES = 100;
 const MEMORY_MAX_SOURCE_CHARS = 60000;
@@ -391,6 +393,7 @@ function parsePetResponse(value, streaming = false) {
     let emotion = '';
     let text = String(value || '').replace(PET_EMOTION_PATTERN, (_match, selectedEmotion) => {
         emotion = String(selectedEmotion || '').toLowerCase();
+        if (emotion === 'sad') emotion = 'wronged';
         return '';
     });
     if (streaming) {
@@ -404,14 +407,22 @@ function inferPetEmotion(text, userText = '') {
     const value = `${prompt}\n${String(text || '')}`;
 
     // 明确让小团子做表情时，以用户点名的表情为准。
+    if (/(哭哭|大哭|哭一个|哭脸|哇哇哭|😭)/u.test(prompt)) return 'cry';
+    if (/(委屈|可怜巴巴|瘪嘴|🥺|😢|🥲)/u.test(prompt)) return 'wronged';
+    if (/(可爱|卖萌|萌一个|星星眼|宝宝脸)/u.test(prompt)) return 'cute';
+    if (/(坏笑|偷笑|奸笑|😏)/u.test(prompt)) return 'smirk';
+    if (/(无语|沉默|汗一个|😐|😑|💧)/u.test(prompt)) return 'speechless';
     if (/(生气|发火|愤怒|气一个|凶一个|😠|😡|😾)/u.test(prompt)) return 'angry';
-    if (/(哭一个|哭脸|伤心|难过|悲伤|😭|😢|🥲)/u.test(prompt)) return 'sad';
     if (/(大笑|笑一个|笑脸|哈哈|🤣|😂|😆)/u.test(prompt)) return 'laugh';
     if (/(震惊|惊讶|吓一跳|😮|😳|🤯)/u.test(prompt)) return 'surprised';
     if (/(皱眉|嫌弃|无语|🤨|😕|🙄)/u.test(prompt)) return 'frown';
 
+    if (/(大哭|爆哭|哭死|哇哇哭|泪流满面|泪崩|😭)/u.test(value)) return 'cry';
+    if (/(委屈|可怜巴巴|难过|心疼|悲剧|眼泪|遗憾|🥺|😢|🥲)/u.test(value)) return 'wronged';
+    if (/(太可爱|好可爱|萌死|萌晕|星星眼|宝宝脸)/u.test(value)) return 'cute';
+    if (/(坏笑|偷笑|奸笑|我就知道|😏)/u.test(value)) return 'smirk';
+    if (/(无语|服了|沉默了|不知道说什么|汗颜|😐|😑|💧)/u.test(value)) return 'speechless';
     if (/(生气|气死|混蛋|王八蛋|可恶|愤怒|火大|😠|😡|😾)/u.test(value)) return 'angry';
-    if (/(难过|心疼|悲剧|哭了|眼泪|委屈|遗憾|😭|😢|🥲)/u.test(value)) return 'sad';
     if (/(哈哈|笑死|笑疯|太好笑|乐死|🤣|😂|😆)/u.test(value)) return 'laugh';
     if (/(震惊|居然|竟然|天呐|卧槽|没想到|😮|😳|🤯)/u.test(value)) return 'surprised';
     if (/(不对劲|奇怪|怀疑|皱眉|想不通|🤨|😕|🙄)/u.test(value)) return 'frown';
@@ -456,14 +467,57 @@ function createPetSvg(extraClass = '') {
                 <path class="op-brow op-brow-sad op-brow-right" d="M58 31 Q66 35 73 36" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
                 <path class="op-brow op-brow-angry op-brow-left" d="M27 31 Q35 32 42 37" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
                 <path class="op-brow op-brow-angry op-brow-right" d="M58 37 Q65 32 73 31" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
+                <path class="op-brow op-brow-smirk" d="M59 34 Q67 28 75 32" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
                 <rect class="op-eye op-eye-left" x="28" y="40" width="13" height="17" rx="6.5" fill="#fff" />
                 <rect class="op-eye op-eye-right" x="59" y="40" width="13" height="17" rx="6.5" fill="#fff" />
+                <path class="op-wink" d="M59 49 Q66 43 73 49" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
+                <g class="op-happy-eyes">
+                    <path d="M27 50 Q35 40 43 50" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" />
+                    <path d="M57 50 Q65 40 73 50" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" />
+                </g>
+                <g class="op-laugh-eyes">
+                    <path d="M27 42 L40 52 M40 42 L27 52" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" />
+                    <path d="M60 42 L73 52 M73 42 L60 52" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" />
+                </g>
+                <g class="op-sparkle-eyes">
+                    <ellipse cx="34" cy="48" rx="11" ry="13" fill="#fff" />
+                    <ellipse cx="66" cy="48" rx="11" ry="13" fill="#fff" />
+                    <ellipse cx="35" cy="51" rx="6" ry="7" fill="#3977df" />
+                    <ellipse cx="67" cy="51" rx="6" ry="7" fill="#3977df" />
+                    <circle cx="31" cy="44" r="3.2" fill="#fff" />
+                    <circle cx="63" cy="44" r="3.2" fill="#fff" />
+                    <circle cx="38" cy="54" r="1.7" fill="#fff" />
+                    <circle cx="70" cy="54" r="1.7" fill="#fff" />
+                </g>
+                <g class="op-smirk-eyes" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round">
+                    <path d="M27 47 Q35 43 43 47" />
+                    <path d="M58 49 Q66 45 74 47" />
+                </g>
+                <g class="op-speechless-eyes" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round">
+                    <path d="M28 49 L41 49" />
+                    <path d="M59 49 L72 49" />
+                </g>
                 <path class="op-mouth" d="M43 58 Q50 65 57 58" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
                 <path class="op-mouth-sad" d="M40 67 Q50 54 60 67" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity="0" />
                 <path class="op-mouth-angry" d="M41 66 Q50 57 59 66" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" opacity="0" />
+                <path class="op-mouth-w" d="M43 64 Q46 60 50 64 Q54 60 57 64" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" opacity="0" />
+                <path class="op-mouth-smirk" d="M42 62 Q51 65 61 57" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity="0" />
+                <path class="op-mouth-flat" d="M44 63 L56 63" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity="0" />
                 <ellipse class="op-mouth-open" cx="50" cy="62" rx="6" ry="7.5" fill="#153c87" stroke="#fff" stroke-width="3" opacity="0" />
                 <path class="op-mouth-squiggle" d="M40 63 Q44 58 48 63 Q52 68 56 63 Q59 60 62 63" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" opacity="0" />
                 <path class="op-tear" d="M69 57 C74 63 75 67 72 70 C68 73 64 69 66 65 Z" fill="#dff8ff" opacity="0" />
+                <path class="op-tear-stream op-tear-stream-left" d="M25 56 C23 63 23 74 29 80 C34 74 34 62 31 56 Z" fill="#9de9ff" opacity="0" />
+                <path class="op-tear-stream op-tear-stream-right" d="M69 56 C66 63 66 74 72 80 C78 74 78 63 75 56 Z" fill="#9de9ff" opacity="0" />
+                <g class="op-hands">
+                    <circle cx="25" cy="69" r="10" fill="#4d88f4" />
+                    <circle cx="75" cy="69" r="10" fill="#4d88f4" />
+                    <ellipse cx="22" cy="65" rx="4" ry="2.5" fill="#b8e9ff" opacity=".35" />
+                    <ellipse cx="72" cy="65" rx="4" ry="2.5" fill="#b8e9ff" opacity=".35" />
+                </g>
+                <path class="op-angry-mark" d="M76 24 L82 18 M82 26 L89 24 M75 16 L77 9 M85 19 L91 14" fill="none" stroke="#ff6f87" stroke-width="4" stroke-linecap="round" opacity="0" />
+                <path class="op-sweat" d="M77 45 C84 53 85 60 80 64 C74 68 69 62 72 56 Z" fill="#bdefff" opacity="0" />
+                <g class="op-speechless-dots" fill="#fff" opacity="0"><circle cx="79" cy="26" r="2" /><circle cx="86" cy="26" r="2" /><circle cx="93" cy="26" r="2" /></g>
+                <g class="op-cute-sparkles" fill="#ffe56a" opacity="0"><path d="M78 20 L80 25 L85 27 L80 29 L78 34 L76 29 L71 27 L76 25 Z" /><circle cx="89" cy="36" r="2.5" /></g>
                 <ellipse class="op-cheek" cx="22" cy="59" rx="7" ry="3.5" fill="#ff9ecb" opacity=".72" />
                 <ellipse class="op-cheek" cx="78" cy="59" rx="7" ry="3.5" fill="#ff9ecb" opacity=".72" />
             </g>

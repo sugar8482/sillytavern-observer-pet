@@ -63,11 +63,26 @@
 .op-mouth-angry,
 .op-mouth-open,
 .op-mouth-squiggle,
+.op-mouth-w,
+.op-mouth-smirk,
+.op-mouth-flat,
 .op-brow,
 .op-tear,
+.op-tear-stream,
+.op-wink,
+.op-happy-eyes,
+.op-laugh-eyes,
+.op-sparkle-eyes,
+.op-smirk-eyes,
+.op-speechless-eyes,
+.op-hands,
+.op-angry-mark,
+.op-sweat,
+.op-speechless-dots,
+.op-cute-sparkles,
 .op-cheek,
 .op-angry-glow {
-    transition: opacity 180ms ease, transform 180ms ease, d 180ms ease;
+    transition: opacity 180ms ease, transform 180ms ease;
 }
 
 .op-mouth-open,
@@ -85,83 +100,157 @@
 .op-mouth-angry,
 .op-mouth-open,
 .op-mouth-squiggle,
-.op-tear {
+.op-mouth-w,
+.op-mouth-smirk,
+.op-mouth-flat,
+.op-tear,
+.op-tear-stream,
+.op-happy-eyes,
+.op-laugh-eyes,
+.op-sparkle-eyes,
+.op-smirk-eyes,
+.op-speechless-eyes,
+.op-hands,
+.op-angry-mark,
+.op-sweat,
+.op-speechless-dots,
+.op-cute-sparkles {
     opacity: 0;
+}
+
+#observer-pet-root:not([class*="op-emotion-"]) .op-eye-right {
+    opacity: 0;
+}
+
+.op-wink {
+    opacity: 1;
+}
+
+#observer-pet-root[class*="op-emotion-"] .op-wink {
+    opacity: 0;
+}
+
+#observer-pet-root[class*="op-emotion-"] .op-eye-right {
+    opacity: 1;
+}
+
+#observer-pet-root[class*="op-emotion-"] .op-eye {
+    animation: none;
 }
 
 #observer-pet-root.op-emotion-happy .op-eye,
 #observer-pet-root.op-emotion-laugh .op-eye,
-#observer-pet-root.op-emotion-sad .op-eye,
-#observer-pet-root.op-emotion-angry .op-eye,
-#observer-pet-root.op-emotion-frown .op-eye,
-#observer-pet-root.op-emotion-surprised .op-eye {
-    animation: none;
+#observer-pet-root.op-emotion-cry .op-eye,
+#observer-pet-root.op-emotion-wronged .op-eye,
+#observer-pet-root.op-emotion-cute .op-eye,
+#observer-pet-root.op-emotion-smirk .op-eye,
+#observer-pet-root.op-emotion-speechless .op-eye {
+    opacity: 0;
 }
 
-#observer-pet-root.op-emotion-happy .op-eye {
-    transform: translateY(-1px) scale(1.04, 1.02);
-}
-
-#observer-pet-root.op-emotion-happy .op-mouth {
-    d: path("M39 57 Q50 70 61 57");
+#observer-pet-root.op-emotion-happy .op-happy-eyes {
+    opacity: 1;
 }
 
 #observer-pet-root.op-emotion-happy .op-cheek,
-#observer-pet-root.op-emotion-laugh .op-cheek {
+#observer-pet-root.op-emotion-laugh .op-cheek,
+#observer-pet-root.op-emotion-cute .op-cheek {
     opacity: 0.95;
 }
 
-#observer-pet-root.op-emotion-laugh .op-eye {
-    transform: translateY(3px) scale(1.12, 0.14);
+#observer-pet-root.op-emotion-laugh .op-laugh-eyes {
+    opacity: 1;
 }
 
 #observer-pet-root.op-emotion-laugh .op-mouth,
 #observer-pet-root.op-emotion-surprised .op-mouth,
 #observer-pet-root.op-emotion-frown .op-mouth,
-#observer-pet-root.op-emotion-sad .op-mouth,
+#observer-pet-root.op-emotion-cry .op-mouth,
+#observer-pet-root.op-emotion-wronged .op-mouth,
+#observer-pet-root.op-emotion-cute .op-mouth,
+#observer-pet-root.op-emotion-smirk .op-mouth,
+#observer-pet-root.op-emotion-speechless .op-mouth,
 #observer-pet-root.op-emotion-angry .op-mouth {
     opacity: 0;
 }
 
 #observer-pet-root.op-emotion-laugh .op-mouth-open {
     opacity: 1;
-    transform: scale(1.72, 0.9);
+    transform: scale(1.65, 1.05);
 }
 
-#observer-pet-root.op-emotion-sad .op-brow-sad,
+#observer-pet-root.op-emotion-cry .op-brow-sad,
+#observer-pet-root.op-emotion-wronged .op-brow-sad,
 #observer-pet-root.op-emotion-angry .op-brow-angry {
     opacity: 0.95;
 }
 
-#observer-pet-root.op-emotion-sad .op-eye {
-    transform: translateY(2px) scale(1, 0.82);
-}
-
-#observer-pet-root.op-emotion-sad .op-mouth-sad {
+#observer-pet-root.op-emotion-cry .op-sparkle-eyes,
+#observer-pet-root.op-emotion-wronged .op-sparkle-eyes,
+#observer-pet-root.op-emotion-cute .op-sparkle-eyes {
     opacity: 1;
 }
 
-#observer-pet-root.op-emotion-angry .op-mouth-angry {
+#observer-pet-root.op-emotion-cry .op-mouth-sad,
+#observer-pet-root.op-emotion-wronged .op-mouth-w,
+#observer-pet-root.op-emotion-cute .op-mouth-w {
     opacity: 1;
 }
 
-#observer-pet-root.op-emotion-sad .op-tear {
+#observer-pet-root.op-emotion-cry .op-tear-stream {
+    opacity: 1;
+}
+
+#observer-pet-root.op-emotion-wronged .op-tear {
     opacity: 0.95;
     transform: translateY(1px);
 }
 
-#observer-pet-root.op-emotion-sad .op-cheek,
+#observer-pet-root.op-emotion-cry .op-cheek,
+#observer-pet-root.op-emotion-wronged .op-cheek,
 #observer-pet-root.op-emotion-angry .op-cheek,
 #observer-pet-root.op-emotion-frown .op-cheek {
     opacity: 0.3;
+}
+
+#observer-pet-root.op-emotion-cute .op-hands,
+#observer-pet-root.op-emotion-cute .op-cute-sparkles {
+    opacity: 1;
+}
+
+#observer-pet-root.op-emotion-smirk .op-smirk-eyes,
+#observer-pet-root.op-emotion-smirk .op-mouth-smirk,
+#observer-pet-root.op-emotion-smirk .op-brow-smirk {
+    opacity: 1;
+}
+
+#observer-pet-root.op-emotion-smirk .op-cheek {
+    opacity: 0.78;
 }
 
 #observer-pet-root.op-emotion-angry .op-angry-glow {
     opacity: 0.2;
 }
 
+#observer-pet-root.op-emotion-angry .op-mouth-angry,
+#observer-pet-root.op-emotion-angry .op-hands,
+#observer-pet-root.op-emotion-angry .op-angry-mark {
+    opacity: 1;
+}
+
 #observer-pet-root.op-emotion-angry .op-eye {
     transform: translateY(2px) scale(1, 0.68);
+}
+
+#observer-pet-root.op-emotion-speechless .op-speechless-eyes,
+#observer-pet-root.op-emotion-speechless .op-mouth-flat,
+#observer-pet-root.op-emotion-speechless .op-sweat,
+#observer-pet-root.op-emotion-speechless .op-speechless-dots {
+    opacity: 1;
+}
+
+#observer-pet-root.op-emotion-speechless .op-cheek {
+    opacity: 0.22;
 }
 
 #observer-pet-root.op-emotion-frown .op-eye {
