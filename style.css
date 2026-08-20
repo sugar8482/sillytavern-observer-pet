@@ -215,8 +215,7 @@
 }
 
 #observer-pet-root.op-emotion-smirk .op-smirk-eyes,
-#observer-pet-root.op-emotion-smirk .op-mouth-smirk,
-#observer-pet-root.op-emotion-smirk .op-brow-smirk {
+#observer-pet-root.op-emotion-smirk .op-mouth-smirk {
     opacity: 1;
 }
 

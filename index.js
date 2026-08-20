@@ -2,7 +2,7 @@ const EXTENSION_KEY = 'observerPet';
 const METADATA_KEY = 'observerPetThread';
 const POSITION_KEY = 'observer-pet-device-layout-v1';
 const EXTENSION_FOLDER_NAME = 'sillytavern-observer-pet';
-const EXTENSION_VERSION = '0.7.1';
+const EXTENSION_VERSION = '0.7.2';
 const MAX_CONTEXT_CHARS = 80000;
 const PET_EMOTION_DURATION_MS = 30000;
 const PET_EMOTIONS = Object.freeze([
@@ -467,7 +467,6 @@ function createPetSvg(extraClass = '') {
                 <path class="op-brow op-brow-sad op-brow-right" d="M58 31 Q66 35 73 36" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
                 <path class="op-brow op-brow-angry op-brow-left" d="M27 31 Q35 32 42 37" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
                 <path class="op-brow op-brow-angry op-brow-right" d="M58 37 Q65 32 73 31" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
-                <path class="op-brow op-brow-smirk" d="M59 34 Q67 28 75 32" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
                 <rect class="op-eye op-eye-left" x="28" y="40" width="13" height="17" rx="6.5" fill="#fff" />
                 <rect class="op-eye op-eye-right" x="59" y="40" width="13" height="17" rx="6.5" fill="#fff" />
                 <path class="op-wink" d="M59 49 Q66 43 73 49" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" />
@@ -489,9 +488,9 @@ function createPetSvg(extraClass = '') {
                     <circle cx="38" cy="54" r="1.7" fill="#fff" />
                     <circle cx="70" cy="54" r="1.7" fill="#fff" />
                 </g>
-                <g class="op-smirk-eyes" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round">
-                    <path d="M27 47 Q35 43 43 47" />
-                    <path d="M58 49 Q66 45 74 47" />
+                <g class="op-smirk-eyes" fill="#fff">
+                    <rect x="28" y="44" width="14" height="8" rx="4" transform="rotate(-4 35 48)" />
+                    <rect x="59" y="46" width="14" height="8" rx="4" transform="rotate(-7 66 50)" />
                 </g>
                 <g class="op-speechless-eyes" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round">
                     <path d="M28 49 L41 49" />
@@ -501,7 +500,7 @@ function createPetSvg(extraClass = '') {
                 <path class="op-mouth-sad" d="M40 67 Q50 54 60 67" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity="0" />
                 <path class="op-mouth-angry" d="M41 66 Q50 57 59 66" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" opacity="0" />
                 <path class="op-mouth-w" d="M43 64 Q46 60 50 64 Q54 60 57 64" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" opacity="0" />
-                <path class="op-mouth-smirk" d="M42 62 Q51 65 61 57" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity="0" />
+                <path class="op-mouth-smirk" d="M41 61 Q51 67 63 57" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity="0" />
                 <path class="op-mouth-flat" d="M44 63 L56 63" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" opacity="0" />
                 <ellipse class="op-mouth-open" cx="50" cy="62" rx="6" ry="7.5" fill="#153c87" stroke="#fff" stroke-width="3" opacity="0" />
                 <path class="op-mouth-squiggle" d="M40 63 Q44 58 48 63 Q52 68 56 63 Q59 60 62 63" fill="none" stroke="#fff" stroke-width="3.5" stroke-linecap="round" opacity="0" />
