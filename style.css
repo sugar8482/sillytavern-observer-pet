@@ -118,12 +118,8 @@
     opacity: 0;
 }
 
-#observer-pet-root:not([class*="op-emotion-"]) .op-eye-right {
-    opacity: 0;
-}
-
 .op-wink {
-    opacity: 1;
+    opacity: 0;
 }
 
 #observer-pet-root[class*="op-emotion-"] .op-wink {
