@@ -2,7 +2,7 @@ const EXTENSION_KEY = 'observerPet';
 const METADATA_KEY = 'observerPetThread';
 const POSITION_KEY = 'observer-pet-device-layout-v1';
 const EXTENSION_FOLDER_NAME = 'sillytavern-observer-pet';
-const EXTENSION_VERSION = '0.6.2';
+const EXTENSION_VERSION = '0.6.3';
 const MAX_CONTEXT_CHARS = 80000;
 const PET_EMOTION_DURATION_MS = 30000;
 const PET_EMOTIONS = Object.freeze(['happy', 'laugh', 'sad', 'angry', 'frown', 'surprised']);
@@ -28,7 +28,8 @@ const DEFAULT_SETTINGS = Object.freeze({
     summaryReadAll: false,
     observerHistory: 20,
     autoMemory: true,
-    maxTokens: 700,
+    maxTokens: 4096,
+    generationBudgetVersion: 1,
     replyLength: 'brief',
     temperature: 0.9,
     includeCharacterCard: true,
@@ -75,6 +76,10 @@ function loadSettings() {
     };
     if (!Object.hasOwn(saved, 'autoMemory') && saved.observerHistory === 12) {
         settings.observerHistory = 20;
+    }
+    if ((Number(saved.generationBudgetVersion) || 0) < 1) {
+        settings.maxTokens = Math.max(4096, Number(saved.maxTokens) || 0);
+        settings.generationBudgetVersion = 1;
     }
     context.saveSettingsDebounced();
 }
@@ -552,9 +557,9 @@ function buildUi() {
 
                     <div class="op-two-columns">
                         <label class="op-field">
-                            <span>回复硬上限 tokens</span>
-                            <input id="op-max-tokens" type="number" min="100" max="8000" step="50" />
-                            <small>这是防止无限输出的上限，不是目标字数；过低可能在半句话处截断。</small>
+                            <span>模型生成预算 tokens（含内部思考）</span>
+                            <input id="op-max-tokens" type="number" min="512" max="32000" step="256" />
+                            <small>思考模型会先消耗这里的额度再写正文；建议至少 4096。实际回复长短由下方偏好控制。</small>
                         </label>
                         <label class="op-field">
                             <span>温度</span>
@@ -569,7 +574,7 @@ function buildUi() {
                             <option value="natural">自然展开（通常 200–600 字）</option>
                             <option value="free">不额外限制</option>
                         </select>
-                        <small>模型会尽量按偏好收住；tokens 仍只负责最后的硬截断。</small>
+                        <small>这里控制你最终看到的回复长度；上面的 tokens 负责给内部思考和正文留足总预算。</small>
                     </label>
 
                     <fieldset class="op-checkboxes">
@@ -1568,7 +1573,7 @@ function bindEvents() {
         updateMemoryUi();
         queueAutomaticMemorySummary();
     });
-    elements.maxTokens.addEventListener('change', () => updateSetting('maxTokens', safeNumber(elements.maxTokens.value, 700, 100, 8000)));
+    elements.maxTokens.addEventListener('change', () => updateSetting('maxTokens', safeNumber(elements.maxTokens.value, 4096, 512, 32000)));
     elements.replyLength.addEventListener('change', () => updateSetting('replyLength', elements.replyLength.value));
     elements.temperature.addEventListener('change', () => updateSetting('temperature', safeNumber(elements.temperature.value, 0.9, 0, 2)));
     elements.includeCard.addEventListener('change', () => updateSetting('includeCharacterCard', elements.includeCard.checked));
