@@ -2,7 +2,7 @@ const EXTENSION_KEY = 'observerPet';
 const METADATA_KEY = 'observerPetThread';
 const POSITION_KEY = 'observer-pet-device-layout-v1';
 const EXTENSION_FOLDER_NAME = 'sillytavern-observer-pet';
-const EXTENSION_VERSION = '0.7.2';
+const EXTENSION_VERSION = '0.7.3';
 const MAX_CONTEXT_CHARS = 80000;
 const PET_EMOTION_DURATION_MS = 30000;
 const PET_EMOTIONS = Object.freeze([
@@ -871,6 +871,8 @@ function setupDragging() {
     if ('ResizeObserver' in globalThis) {
         resizeObserver = new ResizeObserver(() => {
             if (!isPanelOpen()) return;
+            // iPad 键盘展开时，兼容扩展会临时压缩面板；不要把临时尺寸保存成用户布局。
+            if (document.documentElement.classList.contains('st-ipad-keyboard-open')) return;
             const rect = elements.panel.getBoundingClientRect();
             if (rect.width > 300 && rect.height > 360) {
                 saveDeviceLayout({ panelWidth: Math.round(rect.width), panelHeight: Math.round(rect.height) });
