@@ -342,8 +342,8 @@
 
 /* 与 iPad Viewport & Scroll Fix 配合：键盘打开时只临时抬起面板，关闭后恢复原位置。 */
 html.st-ipad-keyboard-open #op-panel {
-    top: auto !important;
-    bottom: 8px !important;
+    top: 8px !important;
+    bottom: auto !important;
     height: min(650px, calc(var(--st-ipad-keyboard-height) - 16px)) !important;
     max-height: calc(var(--st-ipad-keyboard-height) - 16px) !important;
 }
